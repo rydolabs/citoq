@@ -175,9 +175,14 @@ def cyclone_run(args, collector):
         until=time.monotonic()+args.timeout
         while time.monotonic()<until and len(collector.seen)<args.count:
             for sample in reader.take(N=128):
+                if not isinstance(sample, BenchMsg):
+                    # DDS invalid/disposed instance event is not a received data sample.
+                    continue
                 collector.ingest(int(sample.seq),int(sample.sent_ns),len(sample.payload)+16)
             time.sleep(.0005)
         for sample in reader.take(N=256):
+            if not isinstance(sample, BenchMsg):
+                continue
             collector.ingest(int(sample.seq),int(sample.sent_ns),len(sample.payload)+16)
     else:
         writer=DataWriter(dp,topic,qos=qos)
