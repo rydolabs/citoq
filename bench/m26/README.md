@@ -4,3 +4,5 @@ This native A/B driver was adapted from the historical Cito M26 experimentation 
 The benchmark harness uses one publisher, one interested subscriber and one unrelated subscriber in distinct namespaces. It reports delivery, process max RSS summed, veth RX/TX and p95 in-process timestamp latency. Timings are not rigorous synchronized-clock one-way measurements on separate physical machines (all netns share monotonic clock). `limited` profile includes 1 Mbps per-interface constraints, 50ms end-to-end configured delay and 1% loss; it does not model real radio airtime.
 
 Results are claims only when the new GitHub Actions execution exits cleanly and attaches raw logs and summary CSV. Zenoh and Fast DDS will need their own native adapters.
+
+Fast DDS network constraint: the benchmark creates a UDPv4-only participant and explicitly disables built-in shared-memory transport. Linux network namespaces alone do not isolate IPC; allowing SHM would make a `tc netem` comparison invalid.
