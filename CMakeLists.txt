@@ -21,7 +21,13 @@ add_library(citoq_c SHARED src/c_api.cpp)
 target_include_directories(citoq_c PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> $<INSTALL_INTERFACE:include>)
 target_compile_features(citoq_c PRIVATE cxx_std_20)
 target_compile_definitions(citoq_c PRIVATE CITOQ_C_BUILD)
-target_link_libraries(citoq_c PRIVATE citoq_core Threads::Threads)
+target_link_libraries(citoq_c PUBLIC citoq_core Threads::Threads)
+# Make the installed C shared library resolve the co-installed core runtime.
+if(UNIX AND NOT APPLE)
+  set_target_properties(citoq_c PROPERTIES
+    BUILD_RPATH_USE_ORIGIN ON
+    INSTALL_RPATH "\$ORIGIN")
+endif()
 set_target_properties(citoq_c PROPERTIES OUTPUT_NAME citoq)
 
 if(UNIX AND NOT APPLE)

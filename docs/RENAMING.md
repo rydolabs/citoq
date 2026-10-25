@@ -19,3 +19,5 @@ The 2026-10-25 full rename applies to code and distribution identities, not only
 **Validation gates:** full CTest on Linux, installed C/C++ CMake consumers, Python import and native ABI access, IDL generation, and separately configured MsQuic network/cross-language tests. Passing the default MsQuic-off CI is necessary but not sufficient for a release.
 
 **Frozen on-wire identity:** the internal discovery capability type hash is derived from the historical protocol-domain string `cito.request.handler.v1`; it MUST remain unchanged across product branding changes so existing request-matching fingerprints do not silently change. The visible namespace and C symbols remain `citoq`.
+
+**Install/link note:** `CitoQ::C` publicly propagates its runtime dependency, and on ELF platforms `libcitoq.so` resolves the co-installed `libcitoq_core.so` through an origin-relative RUNPATH. This is verified by an installed external C consumer without manually setting `LD_LIBRARY_PATH`.
