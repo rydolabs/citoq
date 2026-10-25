@@ -92,15 +92,7 @@ int main(int argc,char**argv){
       m.seq((uint32_t)(sent/topics));
       m.sent_ns(ns());
       m.payload(std::string(size-12,(char)(65+t%23)));
-      const auto rc=writers[t]->write(&m);
-      if(rc!=ReturnCode_t::RETCODE_OK){
-       std::cerr<<"FAST_DDS_WRITE_FAILURE index="<<sent<<" topic="<<t
-                <<" timeout="<<(rc==ReturnCode_t::RETCODE_TIMEOUT)
-                <<" resources="<<(rc==ReturnCode_t::RETCODE_OUT_OF_RESOURCES)
-                <<" precondition="<<(rc==ReturnCode_t::RETCODE_PRECONDITION_NOT_MET)
-                <<std::endl;
-       throw std::runtime_error("write");
-      }
+      if(!writers[t]->write(&m))throw std::runtime_error("Fast DDS write returned false");
       ++sent;
      }
     }
