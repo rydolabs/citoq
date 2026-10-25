@@ -3,6 +3,23 @@
 **Product source pin:** `08188eba73284dd1069016174ad216f5e02d2cfa`.
 All product source/header/CMake files are unchanged by these benchmark-branch commits.
 
+## Updated audit — product-public-API four-engine comparison **16/16 PASS**
+
+[Successful pinned CitoQ public mTLS/QUIC comparison run #40242491625](https://github.com/rydolabs/citoq/actions/runs/40242491625), [raw sender/receiver logs and JSON/CSV](https://github.com/rydolabs/citoq/actions/runs/40242491625/artifacts/12617496490).
+
+Each engine was executed twice in each profile: 2 Linux namespaces, veth/bridge, 256-byte payload, 200 sequenced samples at 100 Hz. `baseline` is unshaped; `netem_10ms_1pct` uses bidirectional 10ms ±2ms with 1% loss. Every one of the **16 cases delivered 200/200** with zero duplicates and invalid samples and successful child process exit codes.
+
+| Engine / tested stack | Baseline p95 app latency (us, 2 trials) | Loss-profile p95 app latency (us, 2 trials) | baseline mean bridge ingress bytes | loss mean bridge ingress bytes |
+|---|---:|---:|---:|---:|
+| CitoQ **public Python Context + native mTLS/QUIC** | 10681 / 10649 | 22171 / 22330 | 149822 | 158884 |
+| Cyclone DDS **Python RELIABLE UDP** | 668 / 665 | 12492 / 12530 | 85962 | 87983 |
+| Zenoh **Python Peer TCP** | 186 / 174 | 12142 / 12038 | 75104 | 75515 |
+| Fast DDS **native C++ RELIABLE UDPv4-only** | 605 / 565 | 12170 / **2591250** | 107107 | 106464 |
+
+The Fast DDS loss-profile trial with p95 ~2.59 **seconds** is retained as observed; delivery succeeded but tail latency was extreme. No outlier has been erased. CitoQ's encryption and polling architecture, DDS Python bindings vs native C++, Zenoh TCP and QoS/serialization differences **prevent a fair intrinsic performance ranking** from this table. Baseline CitoQ 10ms application-level latency is **not** comparable to the earlier 87us internal UDP adapter measurement without controlling the integration path.
+
+Earlier public-API runs below are retained as regression history, not the current acceptance outcome. Later runs added Cyclone writer/reader match and ACK handling and a longer Fast DDS RELIABLE sender lifetime. Full validation of node restart, real radio, higher node counts, p99 statistical power and source package versions is still required.
+
 ## Updated audit — Fast DDS **UDPv4-only** corrected 40-case test
 
 **Supersedes the earlier 40-case results table below.** The earlier run #40241514977 did not explicitly disallow Fast DDS built-in SHM; network namespaces on one Linux runner can share IPC despite separating network stacks, so its Fast DDS traffic and latency are potentially confounded.
