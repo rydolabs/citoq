@@ -15,7 +15,7 @@ import sys
 import time
 
 BR = 'cqbr'
-PROFILES = {'baseline':(0,0,0),'limited':(1000,50,1)}
+PROFILES = {'baseline':(0,0,0),'impaired':(10000,20,1),'limited':(1000,50,1)}
 IFACE_PREFIX='cqh'
 NS_PREFIX='cq-'
 
@@ -113,7 +113,11 @@ def trial(args,engine,repeat):
         before=interface_stats(n)
         env=dict(os.environ)
         config='<CycloneDDS><Domain id="any"><General><Interfaces><NetworkInterface name="eth0"/></Interfaces><AllowMulticast>spdp</AllowMulticast></General></Domain></CycloneDDS>'
-        exe=(args.citoq if engine=='citoq' else args.cyclonedds).resolve()
+        if engine not in ('citoq','cyclonedds','fastdds','zenoh-peer','zenoh-router'):
+            raise RuntimeError('unknown engine '+engine)
+        executables={'citoq':args.citoq,'cyclonedds':args.cyclonedds,'fastdds':args.fastdds}
+        exe=executables.get(engine)
+        if exe:exe=exe.resolve()
         def launch(i):
             role='publisher' if i==0 else ('negative' if i==n-1 else 'subscriber')
             log=folder/f'node-{i:03d}-{role}.log'
@@ -125,9 +129,15 @@ def trial(args,engine,repeat):
                 call+=['env','CYCLONEDDS_URI='+config]
                 if os.environ.get('BENCH_BUNDLE_LIB'):
                     call.append('LD_LIBRARY_PATH='+os.environ['BENCH_BUNDLE_LIB'])
-            call+=['/usr/bin/time','-f','user_s=%U system_s=%S max_rss_kb=%M','-o',str(resource.resolve()),str(exe),
-                   role,str(args.topics),str(args.bytes),str(args.samples),str(args.hz),'10.202.0.255',
-                   str(args.lifetime_ms),str(i),str(n),str(args.percent)]
+            call+=['/usr/bin/time','-f','user_s=%U system_s=%S max_rss_kb=%M','-o',str(resource.resolve())]
+            if engine.startswith('zenoh-'):
+                call += [str(args.zenoh_python.resolve()),str(args.zenoh_script.resolve())]
+            else:
+                call += [str(exe)]
+            call += [role,str(args.topics),str(args.bytes),str(args.samples),str(args.hz),
+                     '10.202.0.255',str(args.lifetime_ms),str(i),str(n),str(args.percent)]
+            if engine.startswith('zenoh-'):
+                call += [engine.removeprefix('zenoh-')]
             p=subprocess.Popen(call,stdout=file,stderr=subprocess.STDOUT,env=env)
             p_by_index[i]=p
         for i in range(1,n):
@@ -199,6 +209,11 @@ def trial(args,engine,repeat):
 def main():
     p=argparse.ArgumentParser()
     for name in ('citoq','cyclonedds'):p.add_argument('--'+name,required=True,type=Path)
+    p.add_argument('--fastdds',type=Path)
+    p.add_argument('--zenoh-python',type=Path)
+    p.add_argument('--zenoh-script',type=Path,default=Path('benchmarks/nodes/zenoh_multi_topic_node.py'))
+    p.add_argument('--engines',nargs='+',choices=['citoq','cyclonedds','fastdds','zenoh-peer','zenoh-router'],default=['citoq','cyclonedds'])
+    p.add_argument('--allow-invalid',action='store_true')
     p.add_argument('--nodes',type=int,default=10)
     p.add_argument('--topics',type=int,default=33)
     p.add_argument('--percent',type=int,default=10)
@@ -215,10 +230,20 @@ def main():
             and 12<=args.bytes<=60000 and 1<=args.repeats<=10 and args.samples>=1
             and args.hz>=1 and args.citoq.is_file() and args.cyclonedds.is_file()):
         p.error('invalid shape, paylod size, repeat, or binary')
+    paths = {'citoq':args.citoq,'cyclonedds':args.cyclonedds,'fastdds':args.fastdds}
+    for engine in args.engines:
+        if engine.startswith('zenoh-'):
+            if not args.zenoh_python or not args.zenoh_python.is_file() or not args.zenoh_script.is_file():
+                p.error('Zenoh Python executable and benchmark script are required')
+        elif not paths.get(engine) or not paths[engine].is_file():
+            p.error('missing executable for '+engine)
     args.output.mkdir(parents=True,exist_ok=True)
     rows=[]
     for rep in range(1,args.repeats+1):
-        for engine in ('citoq','cyclonedds') if rep%2 else ('dds','cito'):
+        # Rotate order to reduce thermal/startup bias and save raw source of each trial.
+        engines=list(args.engines)
+        engines=engines[(rep-1)%len(engines):]+engines[:(rep-1)%len(engines)]
+        for engine in engines:
             print(f'::group::CitoQ bench {engine} nodes={args.nodes} topics={args.topics} subscribed_pct={args.percent} rep={rep}',flush=True)
             row=trial(args,engine,rep)
             rows.append(row)
@@ -228,5 +253,5 @@ def main():
             with (args.output/'summary.csv').open('w',newline='') as f:
                 wr=csv.DictWriter(f,fieldnames=keys);wr.writeheader();wr.writerows(rows)
             print('::endgroup::',flush=True)
-    return int(any(not x['valid'] for x in rows))
+    return int(any(not x['valid'] for x in rows) and not args.allow_invalid)
 if __name__=='__main__':sys.exit(main())
