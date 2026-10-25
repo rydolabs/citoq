@@ -1,0 +1,59 @@
+name: Pinned middleware Linux netns comparison
+on:
+  push:
+    branches: ['bench/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  netns-bridge-netem:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pin source and install tools
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "08188eba73284dd1069016174ad216f5e02d2cfa" || { echo "Unexpected baseline parent"; exit 1; }
+          sudo apt-get update
+          sudo apt-get install -y iproute2 iputils-ping python3
+      - name: Build isolated Linux Bridge topology and apply netem
+        run: |
+          set -euo pipefail
+          sudo ip netns add citoq-bench-a
+          sudo ip netns add citoq-bench-b
+          sudo ip link add citoq-br type bridge
+          sudo ip link set citoq-br up
+          sudo ip link add citoq-va type veth peer name citoq-vap
+          sudo ip link add citoq-vb type veth peer name citoq-vbp
+          sudo ip link set citoq-va netns citoq-bench-a
+          sudo ip link set citoq-vb netns citoq-bench-b
+          sudo ip link set citoq-vap master citoq-br
+          sudo ip link set citoq-vbp master citoq-br
+          sudo ip link set citoq-vap up
+          sudo ip link set citoq-vbp up
+          sudo ip -n citoq-bench-a addr add 10.217.0.1/24 dev citoq-va
+          sudo ip -n citoq-bench-b addr add 10.217.0.2/24 dev citoq-vb
+          sudo ip -n citoq-bench-a link set lo up
+          sudo ip -n citoq-bench-b link set lo up
+          sudo ip -n citoq-bench-a link set citoq-va up
+          sudo ip -n citoq-bench-b link set citoq-vb up
+          sudo ip -n citoq-bench-a tc qdisc add dev citoq-va root netem delay 10ms 2ms loss 1%
+          sudo ip -n citoq-bench-b tc qdisc add dev citoq-vb root netem delay 10ms 2ms loss 1%
+          sudo ip netns exec citoq-bench-a ping -c 5 -W 2 10.217.0.2
+          sudo ip -n citoq-bench-a tc -s qdisc show dev citoq-va
+          sudo ip -n citoq-bench-b tc -s qdisc show dev citoq-vb
+      - name: Record topology evidence
+        run: |
+          mkdir -p evidence
+          sudo ip -d link show citoq-br > evidence/bridge.txt
+          sudo ip -n citoq-bench-a -d link show > evidence/netns-a.txt
+          sudo ip -n citoq-bench-b -d link show > evidence/netns-b.txt
+          sudo ip -n citoq-bench-a tc -s qdisc show dev citoq-va > evidence/netem-a.txt
+          sudo ip -n citoq-bench-b tc -s qdisc show dev citoq-vb > evidence/netem-b.txt
+          git rev-parse HEAD > evidence/benchmark-harness-sha.txt
+          printf '%s\n' 'Baseline CitoQ source SHA: 08188eba73284dd1069016174ad216f5e02d2cfa' > evidence/source-pin.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: topology-netem-evidence
+          path: evidence/
