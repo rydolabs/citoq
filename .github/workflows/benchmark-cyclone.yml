@@ -1,0 +1,55 @@
+name: Pinned CitoQ vs CycloneDDS netns baseline
+
+on:
+  push:
+    branches: ["benchmark/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  controlled-linux-namespace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify pinned CitoQ source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat benchmarks/BASELINE_COMMIT)" = "08188eba73284dd1069016174ad216f5e02d2cfa"
+          git cat-file -t 08188eba73284dd1069016174ad216f5e02d2cfa
+      - name: Linux namespace and DDS prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iproute2 ninja-build cyclonedds-dev libcycloneddsidl-dev cmake time
+          idlc --version || true
+          dpkg-query -W '*cyclonedds*' | tee benchmarks-dependencies.txt
+      - name: Compile pinned-source benchmark drivers
+        run: |
+          cmake -S benchmarks -B build-bench -G Ninja
+          cmake --build build-bench --parallel 2
+      - name: Measure normal link baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -n true
+          python3 benchmarks/netns_matrix.py --citoq build-bench/citoq_multi_topic_node --cyclonedds build-bench/cyclonedds_multi_topic_node --nodes 10 --topics 8 --percent 10 --bytes 256 --samples 8 --hz 10 --repeats 2 --profile baseline --lifetime-ms 12000 --output bench-results/baseline
+      - name: Measure netem rate/delay/loss
+        shell: bash
+        if: always()
+        run: |
+          set -euo pipefail
+          if test -x build-bench/citoq_multi_topic_node && test -x build-bench/cyclonedds_multi_topic_node; then
+            python3 benchmarks/netns_matrix.py --citoq build-bench/citoq_multi_topic_node --cyclonedds build-bench/cyclonedds_multi_topic_node --nodes 10 --topics 8 --percent 10 --bytes 256 --samples 8 --hz 10 --repeats 1 --profile limited --lifetime-ms 16000 --output bench-results/limited
+          fi
+      - name: Upload evidence including unsuccessful trials
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: citoq-cyclonedds-netns-evidence
+          path: |
+            bench-results/
+            benchmarks-dependencies.txt
+          if-no-files-found: warn
