@@ -12,6 +12,8 @@
 #include <fastdds/dds/subscriber/SampleInfo.hpp>
 #include <fastdds/rtps/transport/UDPv4TransportDescriptor.h>
 #include <memory>
+#include <fastdds/rtps/transport/UDPv4TransportDescriptor.h>
+#include <memory>
 #include "BenchMsg.h"
 #include "BenchMsgPubSubTypes.h"
 #include <algorithm>
@@ -61,6 +63,12 @@ int main(int argc, char** argv) {
         int subscribed = (ntopics*percent+99)/100;
         auto* factory = DomainParticipantFactory::get_instance();
         DomainParticipantQos participantQos;
+        factory->get_default_participant_qos(participantQos);
+        // Each Linux network namespace shares the host /dev/shm. Disallow
+        // Fast DDS shared-memory transport so all messages traverse veth+bridge.
+        participantQos.transport().use_builtin_transports = false;
+        participantQos.transport().user_transports.push_back(
+            std::make_shared<eprosima::fastdds::rtps::UDPv4TransportDescriptor>());
         participantQos.name(("citoq-fastdds-"+std::to_string(index)).c_str());
         // Explicitly disable Fast DDS shared memory transport: network namespaces
         // share IPC by default on GitHub runners and would otherwise bypass
