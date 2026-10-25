@@ -1,0 +1,16 @@
+module acme {
+  module navigation {
+    enum FrameKind {
+      Map = 0,
+      Odom = 1
+    };
+
+    struct Position {
+      @id(1) double x;
+      @id(2) double y;
+      @id(3) string<16> frame;
+      @id(4) @optional unsigned long long timestamp;
+      @id(5) @optional FrameKind frame_kind;
+    };
+  };
+};

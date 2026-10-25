@@ -1,0 +1,16 @@
+module acme {
+  enum Mode { Idle = 0, Active = 2 };
+
+  struct Pose {
+    @id(1) double x;
+    @id(2) double y;
+  };
+
+  struct Telemetry {
+    @id(1) Pose pose;
+    @id(2) Mode mode;
+    @id(3) float coefficients[4];
+    @id(4) sequence<string<64>, 20> tags;
+    @id(5) @optional unsigned long long timestamp;
+  };
+};

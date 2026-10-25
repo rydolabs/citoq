@@ -1,0 +1,12 @@
+module acme {
+  struct GetStatus {
+    @id(1) string<32> drone_id;
+  };
+
+  struct Status {
+    @id(1) unsigned long battery;
+    @id(2) boolean armed;
+  };
+
+  request GetStatus returns Status;
+};
