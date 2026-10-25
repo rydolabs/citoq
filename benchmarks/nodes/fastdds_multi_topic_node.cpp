@@ -71,7 +71,7 @@ int main(int argc,char**argv){
      ready=true;
      for(int t=0;t<topics;++t){
       PublicationMatchedStatus matched;
-      if(writers[t]->get_publication_matched_status(matched)!=RETCODE_OK)throw std::runtime_error("match");
+      if(writers[t]->get_publication_matched_status(matched)!=ReturnCode_t::RETCODE_OK)throw std::runtime_error("match");
       if(t<subscribed && matched.current_count<nodes-2){ready=false;break;}
      }
      if(ready){first=ns()+500000000ull;std::cout<<"BENCH_DISCOVERY_READY elapsed_ms="<<((ns()-start)/1000000ull)<<std::endl;}
@@ -85,7 +85,7 @@ int main(int argc,char**argv){
       m.seq((uint32_t)(sent/topics));
       m.sent_ns(ns());
       m.payload(std::string(size-12,(char)(65+t%23)));
-      if(writers[t]->write(&m)!=RETCODE_OK)throw std::runtime_error("write");
+      if(writers[t]->write(&m)!=ReturnCode_t::RETCODE_OK)throw std::runtime_error("write");
       ++sent;
      }
     }
@@ -94,7 +94,7 @@ int main(int argc,char**argv){
     for(int t=0;t<active;++t){
      for(;;){
       Bench::Msg m;SampleInfo info;
-      if(readers[t]->take_next_sample(&m,&info)!=RETCODE_OK)break;
+      if(readers[t]->take_next_sample(&m,&info)!=ReturnCode_t::RETCODE_OK)break;
       if(!info.valid_data)continue;
       if(negative||m.seq()>=(uint32_t)samples||m.sent_ns()>ns()||m.payload().size()!=(size_t)(size-12)){
        ++bad;continue;
