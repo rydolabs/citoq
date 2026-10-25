@@ -1,0 +1,63 @@
+name: Four-engine 10-node selective-interest comparison
+on:
+  push:
+    branches: ['bench/**']
+    paths:
+      - '.github/workflows/benchmark-10node.yml'
+      - 'bench/m26/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  same-runner-10node:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin product and install engines
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 08188eba73284dd1069016174ad216f5e02d2cfa HEAD
+          sudo apt-get update
+          sudo apt-get install -y cyclonedds-dev cyclonedds-tools libfastrtps-dev libfastcdr-dev fastddsgen g++ ninja-build cmake iproute2 python3 python3-venv time
+          python3 -m venv .venv
+          .venv/bin/pip install --disable-pip-version-check eclipse-zenoh==1.9.0
+          mkdir -p evidence10
+          dpkg-query -W -f='${Package} ${Version}\n' cyclonedds-dev cyclonedds-tools libfastrtps-dev libfastcdr-dev fastddsgen > evidence10/package-versions.txt
+          .venv/bin/pip freeze >> evidence10/package-versions.txt
+          uname -a >> evidence10/package-versions.txt
+          git rev-parse HEAD >> evidence10/package-versions.txt
+      - name: Build three native engines and Zenoh runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S bench/m26 -B build/bench-m26 -G Ninja
+          cmake --build build/bench-m26 --parallel 2
+          mkdir -p build/fastgen build/fastdds build/zenoh
+          fastddsgen -replace -d "$PWD/build/fastgen" "$PWD/bench/m26/BenchMsg.idl"
+          mapfile -t generated < <(find build/fastgen -maxdepth 1 -type f \( -name '*.cxx' -o -name '*.cpp' \) ! -name '*Publisher*' ! -name '*Subscriber*' ! -name '*Main*' | sort)
+          test "${#generated[@]}" -ge 2
+          g++ -std=c++17 -O2 -pthread -Ibuild/fastgen bench/m26/fastdds_multi_topic_node.cpp "${generated[@]}" -lfastrtps -lfastcdr -o build/fastdds/fastdds_multi_topic_node
+          printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$PWD/.venv/bin/python" "$PWD/bench/m26/zenoh_multi_topic_node.py" > build/zenoh/zenoh_multi_topic_node
+          chmod +x build/zenoh/zenoh_multi_topic_node
+      - name: Baseline at 10 nodes, eight topics, 10% subscribed
+        shell: bash
+        run: |
+          python3 bench/m26/m26_efficiency.py --cito build/bench-m26/cito_multi_topic_node --dds build/bench-m26/dds_multi_topic_node --zenoh build/zenoh/zenoh_multi_topic_node --fastdds build/fastdds/fastdds_multi_topic_node --engines cito dds zenoh fastdds --nodes 10 --topics 8 --percent 10 --bytes 256 --samples 8 --hz 10 --repeats 2 --lifetime-ms 16000 --profile baseline --output evidence10/baseline
+      - name: Limited 1Mbps/delay/loss at 10 nodes
+        shell: bash
+        run: |
+          python3 bench/m26/m26_efficiency.py --cito build/bench-m26/cito_multi_topic_node --dds build/bench-m26/dds_multi_topic_node --zenoh build/zenoh/zenoh_multi_topic_node --fastdds build/fastdds/fastdds_multi_topic_node --engines cito dds zenoh fastdds --nodes 10 --topics 8 --percent 10 --bytes 256 --samples 8 --hz 10 --repeats 2 --lifetime-ms 16000 --profile limited --output evidence10/limited
+      - name: Verify all run exits and aggregate
+        shell: bash
+        run: |
+          python3 bench/m26/summarize.py --root evidence10 --repeats 2 --nodes 10
+          cat evidence10/COMPARISON.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: citoq-10node-all-engines-netns
+          path: evidence10/

@@ -1,0 +1,43 @@
+name: CitoQ and Cyclone DDS UDP benchmark
+on:
+  push:
+    branches: ['bench/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ab-3node:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin source and install benchmark dependencies
+        run: |
+          set -euo pipefail
+          git cat-file -e 08188eba73284dd1069016174ad216f5e02d2cfa^{commit}
+          git merge-base --is-ancestor 08188eba73284dd1069016174ad216f5e02d2cfa HEAD
+          sudo apt-get update
+          sudo apt-get install -y cyclonedds-dev cyclonedds-tools ninja-build cmake iproute2 python3 time
+          dpkg-query -W -f='${Package} ${Version}\n' cyclonedds-dev cyclonedds-tools > package-versions.txt
+          git rev-parse HEAD >> package-versions.txt
+      - name: Build native benchmark drivers
+        run: |
+          cmake -S bench/m26 -B build/bench-m26 -G Ninja
+          cmake --build build/bench-m26 --parallel 2
+      - name: Run 3-node baseline and netem loss
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python3 bench/m26/m26_efficiency.py --cito build/bench-m26/cito_multi_topic_node --dds build/bench-m26/dds_multi_topic_node --nodes 3 --topics 4 --percent 50 --bytes 256 --samples 8 --hz 10 --repeats 2 --lifetime-ms 7500 --profile baseline --output evidence/baseline
+          python3 bench/m26/m26_efficiency.py --cito build/bench-m26/cito_multi_topic_node --dds build/bench-m26/dds_multi_topic_node --nodes 3 --topics 4 --percent 50 --bytes 256 --samples 8 --hz 10 --repeats 2 --lifetime-ms 7500 --profile limited --output evidence/limited
+          cp package-versions.txt evidence/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: citoq-cyclone-3node-evidence
+          path: |
+            evidence/
+            package-versions.txt
