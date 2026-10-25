@@ -10,3 +10,25 @@ target_link_libraries(citoq_multi_topic_node PRIVATE Threads::Threads)
 idlc_generate(TARGET BenchMsg_types FILES BenchMsg.idl)
 add_executable(cyclonedds_multi_topic_node nodes/cyclonedds_multi_topic_node.c)
 target_link_libraries(cyclonedds_multi_topic_node PRIVATE BenchMsg_types CycloneDDS::ddsc)
+
+option(CITOQ_BENCH_FASTDDS "Build Fast DDS benchmark" ON)
+if(CITOQ_BENCH_FASTDDS)
+  find_program(FASTDDSGEN_EXECUTABLE fastddsgen REQUIRED)
+  set(FASTDDS_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/fastdds_generated")
+  file(MAKE_DIRECTORY "${FASTDDS_GENERATED_DIR}")
+  execute_process(
+    COMMAND "${FASTDDSGEN_EXECUTABLE}" -replace -d "${FASTDDS_GENERATED_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/BenchMsg.idl"
+    RESULT_VARIABLE FASTDDSGEN_RC
+    OUTPUT_VARIABLE FASTDDSGEN_OUTPUT
+    ERROR_VARIABLE FASTDDSGEN_ERROR)
+  if(NOT FASTDDSGEN_RC EQUAL 0)
+    message(FATAL_ERROR "Fast DDS generator failed: ${FASTDDSGEN_OUTPUT} ${FASTDDSGEN_ERROR}")
+  endif()
+  file(GLOB FASTDDS_GENERATED_SOURCES CONFIGURE_DEPENDS "${FASTDDS_GENERATED_DIR}/*.cxx" "${FASTDDS_GENERATED_DIR}/*.cpp")
+  if(NOT FASTDDS_GENERATED_SOURCES)
+    message(FATAL_ERROR "Fast DDS generated no C++ source files")
+  endif()
+  add_executable(fastdds_multi_topic_node nodes/fastdds_multi_topic_node.cpp ${FASTDDS_GENERATED_SOURCES})
+  target_include_directories(fastdds_multi_topic_node PRIVATE "${FASTDDS_GENERATED_DIR}")
+  target_link_libraries(fastdds_multi_topic_node PRIVATE fastrtps fastcdr Threads::Threads)
+endif()

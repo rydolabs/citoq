@@ -1,8 +1,6 @@
 name: Pinned CitoQ vs CycloneDDS netns baseline
 
 on:
-  push:
-    branches: ["benchmark/**"]
   workflow_dispatch:
 
 permissions:
