@@ -90,7 +90,7 @@ int main(int argc,char**argv) {
         msg.seq((std::uint32_t)i);
         msg.sent_ns(mono_ns());
         msg.payload(std::string(payload_size-12,'B'));
-        ensure(writer->write(&msg)==ReturnCode_t::RETCODE_OK,"write");
+        ensure(writer->write(&msg),"write");
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(700));
       std::cout<<"SENDER_OK engine=fastdds sent="<<count<<std::endl;

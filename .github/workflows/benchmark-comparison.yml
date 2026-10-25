@@ -64,15 +64,24 @@ jobs:
           openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 1 -extfile client.ext >/dev/null 2>&1
           openssl verify -CAfile ca.pem -verify_ip 10.217.0.2 server.pem
           openssl verify -CAfile ca.pem -purpose sslclient client.pem
-      - name: Three-engine netns/veth/bridge/netem evidence
+      - name: Build native Fast DDS 2.x UDP-only adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-benchmark-adapter/generated
+          fastddsgen -replace -d "$PWD/build-benchmark-adapter/generated" "$PWD/bench/m26/BenchMsg.idl"
+          ls -la build-benchmark-adapter/generated
+          test "$(find build-benchmark-adapter/generated -maxdepth 1 -type f -name '*.cxx' | wc -l)" -ge 2
+          g++ -std=c++17 -O2 -pthread -Ibuild-benchmark-adapter/generated benchmark/fastdds_node.cpp $(find build-benchmark-adapter/generated -maxdepth 1 -type f -name '*.cxx' ! -name '*Publisher*' ! -name '*Subscriber*' ! -name '*Main*' | sort) -lfastrtps -lfastcdr -o build-benchmark-adapter/fastdds_node
+      - name: Four-engine netns/veth/bridge/netem evidence
         shell: bash
         run: |
           set -euo pipefail
           python3 benchmark/run_comparison.py --python "$GITHUB_WORKSPACE/.venv/bin/python" \
-            --engines citoq,cyclonedds,zenoh --count 200 --payload 256 --rate 100 --repeats 2
+            --engines citoq,cyclonedds,zenoh,fastdds --count 200 --payload 256 --rate 100 --repeats 2
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: pinned-middleware-netns-results
+          name: pinned-four-engine-middleware-results
           path: benchmark-evidence/
           if-no-files-found: warn
