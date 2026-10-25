@@ -1,9 +1,34 @@
 # CitoQ
 
-CitoQ is the new repository for the Cito communication middleware project.
+CitoQ is a typed communication middleware built around demand-oriented discovery, Publish/Subscribe and Request/Reply.
 
-> **Development snapshot — not product-release ready.** This repository is being migrated from `nssang00/chatgpt-write-test`. The previous source remains intact.
->
-> The base line is `cito-dev` at `95e36fb211e5032fe34b583502d3f843f99d14b9` and the experimental G1–G5 integration is `cito-g1g5-actions-20261024` at `037e860ab21ddbed9837e1c68262105dcc74d5c3`. The latter is **draft only** and must not be treated as a release.
+> **Release preparation — NOT RELEASE READY.** This repository is a curated source migration from Cito. It is not a production release or a claim of completed G1–G5 acceptance gates.
 
-Migration note: package/API renaming to `citoq` is a separate compatibility-sensitive step. See the original [Draft PR #25](https://github.com/nssang00/chatgpt-write-test/pull/25) for evidence and remaining blockers.
+## Build (Linux)
+
+Requirements: CMake 3.20+, C++20 compiler, Python 3, Threads and optionally Ninja.
+
+```sh
+cmake -S . -B build -G Ninja -DBUILD_TESTING=ON -DCITO_ENABLE_MSQUIC=OFF
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
+cmake --install build --prefix "$PWD/stage"
+```
+
+In a separate CMake project: `find_package(CitoQ CONFIG REQUIRED)` and `target_link_libraries(app PRIVATE CitoQ::Core)` with `CMAKE_PREFIX_PATH` set to the installed prefix. C consumers may use `CitoQ::C`.
+
+## CitoQ API transition
+
+The repository and CMake project are named CitoQ. The first import **intentionally preserves** the original `cito::` C++ namespace, `cito_*` C ABI symbols, `libcito.so`, on-wire identifiers and Python native internals. This avoids silently breaking compatibility while moving sources. A C++ transitional header `<citoq/citoq.hpp>` exposes the `citoq::` namespace alias. C consumers may include `<citoq/citoq_c.h>` (existing `cito_*` symbols). The `python/citoq` module reexports the original Python binding; native runtime installation or `CITO_LIBRARY` is required.
+
+`CITO_ENABLE_MSQUIC=ON` requires separately installed MsQuic headers/libraries. QUIC/mTLS has partial integration evidence in the development repository but is **not production certified**. Experimental ROS 2 bridge code is deliberately excluded from this initial distribution snapshot.
+
+## Project information
+
+- [Release status and blockers](docs/RELEASE_STATUS.md)
+- [Source provenance](docs/SOURCE_PROVENANCE.md)
+- [Public API](docs/PUBLIC_API.md)
+- [Architecture rules](docs/ARCHITECTURE_CONSTITUTION.md)
+- [Testing](docs/TESTING.md)
+
+[Original development PR #25](https://github.com/nssang00/chatgpt-write-test/pull/25). No final license has been selected; public access alone does not grant reuse rights.

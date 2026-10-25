@@ -1,0 +1,40 @@
+name: CitoQ source build and regression
+
+on:
+  push:
+    branches: [main, "migration/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCITO_ENABLE_MSQUIC=OFF -DBUILD_TESTING=ON
+      - name: Build
+        run: cmake --build build --parallel 2
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --parallel 2
+      - name: Install
+        run: cmake --install build --prefix "$GITHUB_WORKSPACE/stage"
+      - name: Out-of-tree C++ consumer
+        shell: bash
+        run: |
+          mkdir -p /tmp/citoq-consumer
+          cat > /tmp/citoq-consumer/CMakeLists.txt <<'EOF'
+          cmake_minimum_required(VERSION 3.20)
+          project(CitoQConsumer LANGUAGES CXX)
+          find_package(CitoQ CONFIG REQUIRED)
+          add_executable(consumer main.cpp)
+          target_link_libraries(consumer PRIVATE CitoQ::Core)
+          EOF
+          printf '#include <citoq/citoq.hpp>\nint main() { citoq::Context ctx; return 0; }\n' > /tmp/citoq-consumer/main.cpp
+          cmake -S /tmp/citoq-consumer -B /tmp/citoq-consumer/build -G Ninja -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage"
+          cmake --build /tmp/citoq-consumer/build
+          /tmp/citoq-consumer/build/consumer
