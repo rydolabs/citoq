@@ -5,7 +5,6 @@ Two namespaces share the same Linux CLOCK_MONOTONIC clock. The sender embeds
 monotonic_ns; the receiver records delta, not network-only latency.
 A result is valid only if the receiver exits and writes a parseable report.
 """
-from __future__ import annotations
 
 import argparse
 import json
