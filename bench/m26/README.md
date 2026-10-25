@@ -1,0 +1,6 @@
+# Benchmark caveat
+This native A/B driver was adapted from the historical Cito M26 experimentation at commit `73ee92c688645aac918de70c57ea376d53119371`, not the release CitoQ public API. The `cito_multi_topic_node` uses `citoq::detail::UdpRuntimeAdapter` and drives it via raw Linux UDP sockets; this assesses one component, **not** the installed CitoQ SDK or MsQuic/mTLS end-to-end behavior. Cyclone DDS driver uses `dds_write`/`dds_take` and BEST_EFFORT. Workloads are *application-level* nominally comparable, not wire-byte identical.
+
+The benchmark harness uses one publisher, one interested subscriber and one unrelated subscriber in distinct namespaces. It reports delivery, process max RSS summed, veth RX/TX and p95 in-process timestamp latency. Timings are not rigorous synchronized-clock one-way measurements on separate physical machines (all netns share monotonic clock). `limited` profile includes 1 Mbps per-interface constraints, 50ms end-to-end configured delay and 1% loss; it does not model real radio airtime.
+
+Results are claims only when the new GitHub Actions execution exits cleanly and attaches raw logs and summary CSV. Zenoh and Fast DDS will need their own native adapters.
