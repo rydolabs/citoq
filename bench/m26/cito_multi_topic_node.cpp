@@ -31,6 +31,7 @@ int main(int argc,char** argv){
 try{
 // role topics payload_size samples hz announce_ip lifetime_ms
 if(argc!=8 && argc!=11)throw std::runtime_error("args: role topics bytes samples hz announce_ip lifetime_ms [index nodes percent]");
+const auto benchmark_start=Clock::now();
 std::string role=argv[1];int topics=std::stoi(argv[2]),size=std::stoi(argv[3]),samples=std::stoi(argv[4]),hz=std::stoi(argv[5]),lifetime=std::stoi(argv[7]);
 if(topics<1||topics>256||size<12||size>60000||samples<1||samples>10000||hz<1||hz>2000)throw std::runtime_error("bounds");
 int index=argc==11?std::stoi(argv[8]):(role=="publisher"?0:(role=="subscriber"?1:2));
@@ -63,7 +64,7 @@ if(role=="publisher")for(int i=0;i<topics;++i)udp.ensure_routes(key(i));
 int fd=sock(ctl,role!="publisher"),data=-1;if(role!="publisher")data=sock(dat);
 in_addr ip{};if(inet_pton(AF_INET,argv[6],&ip)!=1)throw std::runtime_error("ip");
 citoq::detail::UdpEndpoint announce{ntohl(ip.s_addr),47100};auto announcement=udp.announcement(ctl,1500);
-auto started=Clock::now(),next=started;bool ready=false;uint64_t sent=0;auto last=started;
+auto started=benchmark_start,next=Clock::now();bool ready=false;uint64_t sent=0;auto last=started;
 while(std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now()-started).count()<lifetime){
  auto now=Clock::now();
  if(role!="publisher"&&now>=next){if(!send(fd,announce,announcement))throw std::runtime_error("announce");next=now+std::chrono::milliseconds(150);}

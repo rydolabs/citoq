@@ -52,6 +52,7 @@ int main(int argc, char** argv) {
              && nsamples>=1 && nsamples<=10000 && hz>=1 && hz<=2000
              && nodes>=3 && percent>=1 && percent<=100 && index>=0 && index<nodes,
              "invalid workload");
+        const auto started=now_ns();
         bool pub = role=="publisher", negative = role=="negative";
         must(pub || role=="subscriber" || negative,"role");
         int nactive = negative?1:(pub?ntopics:(ntopics*percent+99)/100);
@@ -96,7 +97,6 @@ int main(int argc, char** argv) {
                 readers.push_back(reader);
             }
         }
-        auto started=now_ns();
         std::uint64_t first=0,sent=0,received=0,bad=0,dup=0;
         bool ready=false;
         std::vector<unsigned char> seen((std::size_t)ntopics*nsamples,0);

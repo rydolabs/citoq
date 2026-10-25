@@ -15,6 +15,7 @@ int main(int argc,char**argv){
  if(argc!=8&&argc!=11){fprintf(stderr,"args: role topics bytes samples hz unused lifetime_ms [index nodes pct]\n");return 2;}
  const char* role=argv[1];int topics=atoi(argv[2]),size=atoi(argv[3]),samples=atoi(argv[4]),hz=atoi(argv[5]);long life=atol(argv[7]);
  if(topics<1||topics>256||size<12||size>60000||samples<1||samples>10000||hz<1||hz>2000)return 2;
+ uint64_t start=ns();
  bool pub=!strcmp(role,"publisher"),negative=!strcmp(role,"negative");
  int index=argc==11?atoi(argv[8]):(pub?0:(negative?2:1));
  int nodes=argc==11?atoi(argv[9]):3, pct=argc==11?atoi(argv[10]):100;
@@ -32,7 +33,7 @@ int main(int argc,char**argv){
  dds_entity_t waitset=-1;
  if(!pub){waitset=dds_create_waitset(p);if(waitset<0)fail("waitset",waitset);for(int t=0;t<active;++t){dds_entity_t cond=dds_create_readcondition(ends[t],DDS_ANY_STATE);if(cond<0)fail("readcondition",cond);dds_return_t rc=dds_waitset_attach(waitset,cond,(dds_attach_t)t);if(rc<0)fail("attach",rc);}}
  uint8_t *seen=calloc((size_t)topics*samples,1);uint64_t *lat=calloc((size_t)topics*samples,sizeof(uint64_t));uint64_t recv=0,bad=0,dup=0,sent=0;bool ready=false;
- uint64_t start=ns(),first=0;
+ uint64_t first=0;
  char* payload=malloc(size);memset(payload,'A',size-12);payload[size-12]=0;
  Bench_Msg*sample=Bench_Msg__alloc();void*storage[1]={sample};dds_sample_info_t info[1];
  while((ns()-start)/1000000ull<(uint64_t)life){
