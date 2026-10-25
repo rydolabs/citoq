@@ -1,0 +1,78 @@
+name: Pinned CitoQ vs CycloneDDS Zenoh FastDDS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  five-profiles-single-host-netns:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin source exactly and confirm product tree untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="$(cat benchmarks/BASELINE_COMMIT)"
+          test "$BASE" = "08188eba73284dd1069016174ad216f5e02d2cfa"
+          test "$(git cat-file -t "$BASE")" = commit
+          git diff --exit-code "$BASE" HEAD -- CMakeLists.txt include src python tools tests cmake
+          echo "CITOQ_TESTED_COMMIT=$BASE" >> "$GITHUB_ENV"
+      - name: Install DDS and Linux network utilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake iproute2 time cyclonedds-dev libfastrtps-dev libfastcdr-dev fastddsgen python3-venv
+          python3 -m venv .bench-venv
+          .bench-venv/bin/python -m pip install --disable-pip-version-check "eclipse-zenoh==1.7.1"
+          mkdir -p bench-results
+          { dpkg-query -W '*cyclonedds*' '*fastrtps*' '*fastcdr*' 'fastddsgen' || true; .bench-venv/bin/python -m pip freeze; uname -a; } > bench-results/dependency-versions.txt
+          .bench-venv/bin/python -c 'import zenoh; print("zenoh module loaded")'
+      - name: Compile all three C++ / C drivers
+        run: |
+          cmake -S benchmarks -B build-bench -G Ninja -DCITOQ_BENCH_FASTDDS=ON
+          cmake --build build-bench --parallel 2
+          ls -l build-bench/*topic_node
+      - name: Execute five variants on normal Linux bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 benchmarks/netns_matrix.py \
+            --citoq build-bench/citoq_multi_topic_node \
+            --cyclonedds build-bench/cyclonedds_multi_topic_node \
+            --fastdds build-bench/fastdds_multi_topic_node \
+            --zenoh-python .bench-venv/bin/python \
+            --engines citoq cyclonedds fastdds zenoh-peer zenoh-router \
+            --nodes 10 --topics 8 --percent 10 --bytes 256 --samples 8 --hz 10 \
+            --repeats 1 --profile baseline --lifetime-ms 14000 \
+            --output bench-results/baseline
+      - name: Execute netem impaired network without concealing trial failures
+        shell: bash
+        if: always()
+        run: |
+          set -euo pipefail
+          if test -x build-bench/fastdds_multi_topic_node; then
+            python3 benchmarks/netns_matrix.py \
+              --citoq build-bench/citoq_multi_topic_node \
+              --cyclonedds build-bench/cyclonedds_multi_topic_node \
+              --fastdds build-bench/fastdds_multi_topic_node \
+              --zenoh-python .bench-venv/bin/python \
+              --engines citoq cyclonedds fastdds zenoh-peer zenoh-router \
+              --nodes 10 --topics 8 --percent 10 --bytes 256 --samples 8 --hz 10 \
+              --repeats 1 --profile impaired --lifetime-ms 18000 \
+              --allow-invalid --output bench-results/impaired
+          fi
+      - name: Save raw JSON CSV and per-process logs even on failure
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: citoq-cyclone-fast-zenoh-netns-${{ github.run_id }}
+          path: bench-results/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,7 @@
+module Bench {
+  struct Msg {
+    unsigned long seq;
+    unsigned long long sent_ns;
+    string payload;
+  };
+};
