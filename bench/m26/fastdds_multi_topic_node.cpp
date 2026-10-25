@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
         auto* participant = factory->create_participant(0, participantQos);
         must(participant != nullptr, "participant");
         TypeSupport support(new Bench::MsgPubSubType());
-        must(support.register_type(participant)==RETCODE_OK, "register type");
+        must(support.register_type(participant)==ReturnCode_t::RETCODE_OK, "register type");
         auto* publisher = pub ? participant->create_publisher(PUBLISHER_QOS_DEFAULT,nullptr) : nullptr;
         auto* subscriber = pub ? nullptr : participant->create_subscriber(SUBSCRIBER_QOS_DEFAULT,nullptr);
         must(pub ? publisher != nullptr : subscriber != nullptr, "endpoint");
@@ -108,7 +108,7 @@ int main(int argc, char** argv) {
                     ready=true;
                     for (int t=0;t<subscribed;++t) {
                         PublicationMatchedStatus matched;
-                        must(writers[t]->get_publication_matched_status(matched)==RETCODE_OK, "match");
+                        must(writers[t]->get_publication_matched_status(matched)==ReturnCode_t::RETCODE_OK, "match");
                         if (matched.current_count < nodes-2) {ready=false;break;}
                     }
                     if (ready) {
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
                     m.seq(static_cast<std::uint32_t>(sent/ntopics));
                     m.sent_ns(now_ns());
                     m.payload(std::string(nbytes-12,static_cast<char>(65+t%23)));
-                    must(writers[t]->write(&m)==RETCODE_OK,"write");
+                    must(writers[t]->write(&m),"write");
                     ++sent;
                 }
                 if (ready && sent==(std::uint64_t)ntopics*nsamples
@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
                     for (;;) {
                         Bench::Msg m;
                         SampleInfo info;
-                        if (readers[t]->take_next_sample(&m,&info)!=RETCODE_OK) break;
+                        if (readers[t]->take_next_sample(&m,&info)!=ReturnCode_t::RETCODE_OK) break;
                         if (!info.valid_data) continue;
                         const auto arrival=now_ns();
                         if (negative || m.seq()>=(std::uint32_t)nsamples
