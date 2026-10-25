@@ -3,6 +3,25 @@
 **Product source pin:** `08188eba73284dd1069016174ad216f5e02d2cfa`.
 All product source/header/CMake files are unchanged by these benchmark-branch commits.
 
+## Updated audit — Fast DDS **UDPv4-only** corrected 40-case test
+
+**Supersedes the earlier 40-case results table below.** The earlier run #40241514977 did not explicitly disallow Fast DDS built-in SHM; network namespaces on one Linux runner can share IPC despite separating network stacks, so its Fast DDS traffic and latency are potentially confounded.
+
+[Full successful re-run #40242077430](https://github.com/rydolabs/citoq/actions/runs/40242077430) and [raw 40-trial artifact](https://github.com/rydolabs/citoq/actions/runs/40242077430/artifacts/12617745758). Fast DDS is now forced to UDPv4-only by disabling built-in transports and registering `UDPv4TransportDescriptor`. Five repetitions per implementation per profile, 3 nodes, 4 topics, nominal 256B, 8 samples/topic, 10Hz. `valid` still does **not** mean fully delivered.
+
+| Engine | Network | Actual / expected deliveries | Mean veth RX bytes | Mean subscriber p95 us | Sum peak RSS KB |
+|---|---|---:|---:|---:|---:|
+| CitoQ internal UDP (not SDK/QUIC) | baseline | 80/80 | 13,278.4 | 87.0 | 12,752.8 |
+| Cyclone DDS BEST_EFFORT | baseline | 80/80 | 31,645.6 | 156.4 | 23,062.4 |
+| Zenoh peer TCP | baseline | 80/80 | 17,834.6 | 308.2 | 74,088.8 |
+| Fast DDS BEST_EFFORT UDP-only | baseline | 80/80 | 57,129.6 | 868.0 | 47,204.0 |
+| CitoQ internal UDP (not SDK/QUIC) | limited | 80/80 | 13,577.6 | 55,398.4 | 12,977.6 |
+| Cyclone DDS BEST_EFFORT | limited | 80/80 | 50,570.4 | 56,207.4 | 23,032.8 |
+| Zenoh peer TCP | limited | 80/80 | 20,431.8 | 82,677.6 | 74,389.6 |
+| Fast DDS BEST_EFFORT UDP-only | limited | 78/80 | 72,723.6 | 58,062.4 | 47,202.4 |
+
+**Interpretation:** CitoQ's experimental internal UDP driver consumes fewer measured host-side bridge ingress bytes within this specific small 3-node workload; this is **not a general performance claim about the pinned CitoQ shipping API**. Zenoh TCP transport is semantically different from BEST_EFFORT UDP. The 1Mbps/50ms/1%-loss simulation is not shared RF airtime, and the sample is too small for robust p99. Do not rank overall engine quality, reliability or discovery from these numbers.
+
 ## Verified Linux netns infrastructure
 
 Ubuntu 24.04 GitHub Actions host, independent Linux network namespaces connected by veth + Linux bridge, traffic shaping using `tc netem`. [Topology CI success](https://github.com/rydolabs/citoq/actions/runs/40240361702) after fixing an invalid `ip -n ... tc` command.
