@@ -17,3 +17,5 @@ The 2026-10-25 full rename applies to code and distribution identities, not only
 **Compatibility:** old C symbol names and installed header paths are no longer exported by default. Rebuild consumers and bindings. This is not an ABI-preserving patch or a final semantic-versioned release. The existing wire-format numeric constants, magic-byte values and packet layouts were not explicitly migrated as part of identifier renaming; inter-version wire compatibility must be tested before mixing deployments.
 
 **Validation gates:** full CTest on Linux, installed C/C++ CMake consumers, Python import and native ABI access, IDL generation, and separately configured MsQuic network/cross-language tests. Passing the default MsQuic-off CI is necessary but not sufficient for a release.
+
+**Frozen on-wire identity:** the internal discovery capability type hash is derived from the historical protocol-domain string `cito.request.handler.v1`; it MUST remain unchanged across product branding changes so existing request-matching fingerprints do not silently change. The visible namespace and C symbols remain `citoq`.

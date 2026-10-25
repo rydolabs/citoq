@@ -46,7 +46,7 @@ inline TypeId request_handler_capability_type(
     constexpr std::uint64_t prime =
         1099511628211ull;
     constexpr char tag[] =
-        "citoq.request.handler.v1";
+        "cito.request.handler.v1";
 
     auto hash = basis;
 
