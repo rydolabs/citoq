@@ -186,6 +186,13 @@ def cyclone_run(args, collector):
             collector.ingest(int(sample.seq),int(sample.sent_ns),len(sample.payload)+16)
     else:
         writer=DataWriter(dp,topic,qos=qos)
+        # Reliable DDS late-join safety: do not write historical samples
+        # before an actual subscriber has matched.
+        match_deadline=time.monotonic()+args.timeout
+        while time.monotonic()<match_deadline and not writer.get_matched_subscriptions():
+            time.sleep(.02)
+        if not writer.get_matched_subscriptions():
+            raise RuntimeError("CycloneDDS writer was not matched before sending")
         def send(raw):
             seq,stamp=unpack_payload(raw)
             writer.write(BenchMsg(seq,stamp,list(raw[16:])))
