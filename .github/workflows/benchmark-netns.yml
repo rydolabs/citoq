@@ -41,19 +41,19 @@ jobs:
           sudo ip -n citoq-bench-b link set lo up
           sudo ip -n citoq-bench-a link set citoq-va up
           sudo ip -n citoq-bench-b link set citoq-vb up
-          sudo ip -n citoq-bench-a tc qdisc add dev citoq-va root netem delay 10ms 2ms loss 1%
-          sudo ip -n citoq-bench-b tc qdisc add dev citoq-vb root netem delay 10ms 2ms loss 1%
+          sudo ip netns exec citoq-bench-a tc qdisc add dev citoq-va root netem delay 10ms 2ms loss 1%
+          sudo ip netns exec citoq-bench-b tc qdisc add dev citoq-vb root netem delay 10ms 2ms loss 1%
           sudo ip netns exec citoq-bench-a ping -c 5 -W 2 10.217.0.2
-          sudo ip -n citoq-bench-a tc -s qdisc show dev citoq-va
-          sudo ip -n citoq-bench-b tc -s qdisc show dev citoq-vb
+          sudo ip netns exec citoq-bench-a tc -s qdisc show dev citoq-va
+          sudo ip netns exec citoq-bench-b tc -s qdisc show dev citoq-vb
       - name: Record topology evidence
         run: |
           mkdir -p evidence
           sudo ip -d link show citoq-br > evidence/bridge.txt
           sudo ip -n citoq-bench-a -d link show > evidence/netns-a.txt
           sudo ip -n citoq-bench-b -d link show > evidence/netns-b.txt
-          sudo ip -n citoq-bench-a tc -s qdisc show dev citoq-va > evidence/netem-a.txt
-          sudo ip -n citoq-bench-b tc -s qdisc show dev citoq-vb > evidence/netem-b.txt
+          sudo ip netns exec citoq-bench-a tc -s qdisc show dev citoq-va > evidence/netem-a.txt
+          sudo ip netns exec citoq-bench-b tc -s qdisc show dev citoq-vb > evidence/netem-b.txt
           git rev-parse HEAD > evidence/benchmark-harness-sha.txt
           printf '%s\n' 'Baseline CitoQ source SHA: 08188eba73284dd1069016174ad216f5e02d2cfa' > evidence/source-pin.txt
       - uses: actions/upload-artifact@v4
