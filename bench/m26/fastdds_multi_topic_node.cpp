@@ -9,7 +9,7 @@
 #include <fastdds/dds/topic/Topic.hpp>
 #include <fastdds/dds/topic/TypeSupport.hpp>
 #include <fastdds/dds/core/status/PublicationMatchedStatus.hpp>
-#include <fastdds/dds/core/status/SampleInfo.hpp>
+#include <fastdds/dds/subscriber/SampleInfo.hpp>
 #include "BenchMsg.h"
 #include "BenchMsgPubSubTypes.h"
 #include <algorithm>
