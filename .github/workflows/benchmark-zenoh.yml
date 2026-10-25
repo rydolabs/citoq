@@ -1,0 +1,48 @@
+name: Zenoh peer netns A/B adapter
+on:
+  push:
+    branches: ['bench/**']
+    paths:
+      - 'bench/m26/**'
+      - '.github/workflows/benchmark-zenoh.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  zenoh-3node:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin and install Zenoh
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 08188eba73284dd1069016174ad216f5e02d2cfa HEAD
+          sudo apt-get update
+          sudo apt-get install -y python3-venv iproute2 time
+          python3 -m venv .venv
+          .venv/bin/pip install --disable-pip-version-check eclipse-zenoh==1.9.0
+          .venv/bin/python -c 'import zenoh; print("Zenoh import OK")'
+      - name: Create executable native Zenoh binding launcher
+        shell: bash
+        run: |
+          mkdir -p build/zenoh
+          printf '#!/bin/sh\nexec "%s" "%s" "$@"\n' "$PWD/.venv/bin/python" "$PWD/bench/m26/zenoh_multi_topic_node.py" > build/zenoh/zenoh_multi_topic_node
+          chmod +x build/zenoh/zenoh_multi_topic_node
+      - name: Run Zenoh matching and data path in baseline bridge
+        shell: bash
+        run: |
+          mkdir -p evidence
+          python3 bench/m26/m26_efficiency.py --zenoh build/zenoh/zenoh_multi_topic_node --engines zenoh --nodes 3 --topics 4 --percent 50 --bytes 256 --samples 8 --hz 10 --repeats 2 --lifetime-ms 8500 --profile baseline --output evidence/baseline
+      - name: Run Zenoh loss and delay
+        shell: bash
+        run: |
+          python3 bench/m26/m26_efficiency.py --zenoh build/zenoh/zenoh_multi_topic_node --engines zenoh --nodes 3 --topics 4 --percent 50 --bytes 256 --samples 8 --hz 10 --repeats 2 --lifetime-ms 8500 --profile limited --output evidence/limited
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zenoh-peer-netns-results
+          path: evidence/

@@ -113,7 +113,7 @@ def trial(args,engine,repeat):
         before=interface_stats(n)
         env=dict(os.environ)
         config='<CycloneDDS><Domain id="any"><General><Interfaces><NetworkInterface name="eth0"/></Interfaces><AllowMulticast>spdp</AllowMulticast></General></Domain></CycloneDDS>'
-        exe=(args.cito if engine=='cito' else args.dds).resolve()
+        exe=getattr(args,engine).resolve()
         def launch(i):
             role='publisher' if i==0 else ('negative' if i==n-1 else 'subscriber')
             log=folder/f'node-{i:03d}-{role}.log'
@@ -198,7 +198,8 @@ def trial(args,engine,repeat):
 
 def main():
     p=argparse.ArgumentParser()
-    for name in ('cito','dds'):p.add_argument('--'+name,required=True,type=Path)
+    for name in ('cito','dds','zenoh','fastdds'):p.add_argument('--'+name,type=Path)
+    p.add_argument('--engines',nargs='+',choices=('cito','dds','zenoh','fastdds'),default=['cito','dds'])
     p.add_argument('--nodes',type=int,default=10)
     p.add_argument('--topics',type=int,default=33)
     p.add_argument('--percent',type=int,default=10)
@@ -213,12 +214,12 @@ def main():
     args=p.parse_args()
     if not (3<=args.nodes<=120 and 1<=args.topics<=256 and 1<=args.percent<=100
             and 12<=args.bytes<=60000 and 1<=args.repeats<=10 and args.samples>=1
-            and args.hz>=1 and args.cito.is_file() and args.dds.is_file()):
+            and args.hz>=1 and all(getattr(args,e) is not None and getattr(args,e).is_file() for e in args.engines)):
         p.error('invalid shape, paylod size, repeat, or binary')
     args.output.mkdir(parents=True,exist_ok=True)
     rows=[]
     for rep in range(1,args.repeats+1):
-        for engine in ('cito','dds') if rep%2 else ('dds','cito'):
+        for engine in (args.engines if rep%2 else list(reversed(args.engines))):
             print(f'::group::M26 {engine} nodes={args.nodes} topics={args.topics} subscribed_pct={args.percent} rep={rep}',flush=True)
             row=trial(args,engine,rep)
             rows.append(row)
