@@ -1,0 +1,172 @@
+name: CitoQ G4 Python native mTLS E2E
+
+on:
+  push:
+    branches: [main, 'refactor/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-native-pubsub:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MsQuic 2.6.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build openssl iproute2 python3
+          curl -fsSL https://packages.microsoft.com/ubuntu/24.04/prod/pool/main/libm/libmsquic/libmsquic_2.6.1_amd64.deb -o /tmp/libmsquic.deb
+          sudo dpkg -i /tmp/libmsquic.deb
+          for header in msquic.h msquic_posix.h quic_sal_stub.h; do
+            sudo curl -fsSL "https://raw.githubusercontent.com/microsoft/msquic/v2.6.1/src/inc/$header" -o "/usr/local/include/$header"
+          done
+          MSQUIC_SO="$(find /usr/lib /lib -type f -name 'libmsquic.so*' -print -quit)"
+          test -n "$MSQUIC_SO"
+          sudo ln -sf "$MSQUIC_SO" /usr/local/lib/libmsquic.so
+      - name: Build C ABI and Python-loadable native QUIC driver
+        shell: bash
+        run: |
+          cmake -S . -B build-py -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCITOQ_ENABLE_MSQUIC=ON
+          cmake --build build-py --target citoq_c citoq_native citoq_quic_public_request_node --parallel 2
+          test -s build-py/libcitoq.so
+          test -s build-py/libcitoq_native.so
+      - name: Generate one-day mTLS identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout ca.key -out ca.pem -subj '/CN=CitoQ Python CI Root' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign'
+          openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj '/CN=10.202.0.12'
+          printf '%s\n' 'subjectAltName=IP:10.202.0.12' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature,keyEncipherment' 'extendedKeyUsage=serverAuth' > server.ext
+          openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 1 -extfile server.ext
+          openssl verify -CAfile ca.pem -verify_ip 10.202.0.12 server.pem
+          openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj '/CN=CitoQ Python Client'
+          printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' 'extendedKeyUsage=clientAuth' > client.ext
+          openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 1 -extfile client.ext
+          openssl verify -CAfile ca.pem -purpose sslclient client.pem
+      - name: Python to Python independent network namespaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cleanup() {
+            sudo ip netns del citoq-py-c 2>/dev/null || true
+            sudo ip netns del citoq-py-s 2>/dev/null || true
+            sudo ip link del br-py 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          cleanup
+          sudo ip link add br-py type bridge
+          sudo ip link set br-py up
+          add_node() {
+            local ns="$1" host="$2" peer="$3" addr="$4"
+            sudo ip netns add "$ns"
+            sudo ip link add "$host" type veth peer name "$peer"
+            sudo ip link set "$host" master br-py
+            sudo ip link set "$host" up
+            sudo ip link set "$peer" netns "$ns"
+            sudo ip netns exec "$ns" ip link set lo up
+            sudo ip netns exec "$ns" ip link set "$peer" name eth0
+            sudo ip netns exec "$ns" ip addr add "$addr"/24 dev eth0
+            sudo ip netns exec "$ns" ip link set eth0 up
+          }
+          add_node citoq-py-c vpc vpc-ns 10.202.0.11
+          add_node citoq-py-s vps vps-ns 10.202.0.12
+          PY="$GITHUB_WORKSPACE/tests/net/python_native_pubsub.py"
+          RUNTIME_LIB="$GITHUB_WORKSPACE/build-py/libcitoq_native.so"
+          C_API_LIB="$GITHUB_WORKSPACE/build-py/libcitoq.so"
+          PYTHON_MODULES="$GITHUB_WORKSPACE/python"
+          NATIVE_LD="$GITHUB_WORKSPACE/build-py:/usr/local/lib:/usr/lib"
+          sudo ip netns exec citoq-py-s env CITOQ_LIBRARY="$C_API_LIB" CITOQ_NATIVE_LIBRARY="$RUNTIME_LIB" PYTHONPATH="$PYTHON_MODULES" LD_LIBRARY_PATH="$NATIVE_LD" python3 "$PY" server --control-port 47600 --quic-port 4465 --announcement-ip 10.202.0.11 --announcement-port 47465 --cert "$GITHUB_WORKSPACE/server.pem" --key "$GITHUB_WORKSPACE/server.key" --ca "$GITHUB_WORKSPACE/ca.pem" > evidence/server-python.log 2>&1 &
+          server_pid=$!
+          sleep 0.5
+          client_status=0
+          timeout 25s sudo ip netns exec citoq-py-c env CITOQ_LIBRARY="$C_API_LIB" CITOQ_NATIVE_LIBRARY="$RUNTIME_LIB" PYTHONPATH="$PYTHON_MODULES" LD_LIBRARY_PATH="$NATIVE_LD" python3 "$PY" client --control-port 47465 --ca "$GITHUB_WORKSPACE/ca.pem" --client-cert "$GITHUB_WORKSPACE/client.pem" --client-key "$GITHUB_WORKSPACE/client.key" > evidence/client-python.log 2>&1 || client_status=$?
+          server_status=0
+          wait "$server_pid" || server_status=$?
+          cat evidence/client-python.log
+          cat evidence/server-python.log
+          echo "G4_PYTHON_CLIENT_EXIT=$client_status G4_PYTHON_SERVER_EXIT=$server_status"
+          test "$client_status" -eq 0
+          test "$server_status" -eq 0
+          grep -q 'python_pubsub_sent=100' evidence/client-python.log
+          grep -q 'python_pubsub_received=100' evidence/server-python.log
+
+          # Python provider: actual C++ client RPC and 10 typed samples.
+          TYPE_ID="$("$GITHUB_WORKSPACE/build-py/citoq_quic_public_request_node" type-id)"
+          C_CPP="$GITHUB_WORKSPACE/build-py/citoq_quic_public_request_node"
+          CROSS="$GITHUB_WORKSPACE/tests/net/python_cpp_native_pubsub.py"
+          sudo ip netns exec citoq-py-s env CITOQ_LIBRARY="$C_API_LIB" CITOQ_NATIVE_LIBRARY="$RUNTIME_LIB" PYTHONPATH="$PYTHON_MODULES" LD_LIBRARY_PATH="$NATIVE_LD" python3 "$CROSS" server --type-id "$TYPE_ID" --control-port 47610 --quic-port 4466 --announce-ip 10.202.0.11 --announce-port 47466 --cert "$GITHUB_WORKSPACE/server.pem" --key "$GITHUB_WORKSPACE/server.key" --ca "$GITHUB_WORKSPACE/ca.pem" > evidence/python-server-cpp-client.log 2>&1 &
+          py_server_pid=$!
+          sleep 0.5
+          cpp_client_status=0
+          timeout 25s sudo ip netns exec citoq-py-c env CITOQ_PUBSUB_SMOKE=1 "$C_CPP" client 47466 "$GITHUB_WORKSPACE/ca.pem" "$GITHUB_WORKSPACE/client.pem" "$GITHUB_WORKSPACE/client.key" > evidence/cpp-client-python-server.log 2>&1 || cpp_client_status=$?
+          py_server_status=0
+          wait "$py_server_pid" || py_server_status=$?
+          cat evidence/python-server-cpp-client.log
+          cat evidence/cpp-client-python-server.log
+          echo "G4_CPP_TO_PY_CLIENT=$cpp_client_status SERVER=$py_server_status"
+          test "$cpp_client_status" -eq 0
+          test "$py_server_status" -eq 0
+          grep -q 'python_cpp_server_rpc=1 pubsub_received=10' evidence/python-server-cpp-client.log
+          grep -q 'pubsub_sent=10' evidence/cpp-client-python-server.log
+
+          # C++ provider: actual Python client RPC and 10 typed samples.
+          sudo ip netns exec citoq-py-s env CITOQ_PUBSUB_SMOKE=1 "$C_CPP" server 4467 47611 10.202.0.11 47467 "$GITHUB_WORKSPACE/server.pem" "$GITHUB_WORKSPACE/server.key" "$GITHUB_WORKSPACE/ca.pem" > evidence/cpp-server-python-client.log 2>&1 &
+          cpp_server_pid=$!
+          sleep 0.5
+          py_client_status=0
+          timeout 25s sudo ip netns exec citoq-py-c env CITOQ_LIBRARY="$C_API_LIB" CITOQ_NATIVE_LIBRARY="$RUNTIME_LIB" PYTHONPATH="$PYTHON_MODULES" LD_LIBRARY_PATH="$NATIVE_LD" python3 "$CROSS" client --type-id "$TYPE_ID" --control-port 47467 --ca "$GITHUB_WORKSPACE/ca.pem" --client-cert "$GITHUB_WORKSPACE/client.pem" --client-key "$GITHUB_WORKSPACE/client.key" > evidence/python-client-cpp-server.log 2>&1 || py_client_status=$?
+          cpp_server_status=0
+          wait "$cpp_server_pid" || cpp_server_status=$?
+          cat evidence/python-client-cpp-server.log
+          cat evidence/cpp-server-python-client.log
+          echo "G4_PY_TO_CPP_CLIENT=$py_client_status SERVER=$cpp_server_status"
+          test "$py_client_status" -eq 0
+          test "$cpp_server_status" -eq 0
+          grep -q 'python_cpp_client_rpc=42 pubsub_sent=10' evidence/python-client-cpp-server.log
+          grep -q 'pubsub_received=10' evidence/cpp-server-python-client.log
+
+          # C-ABI publisher -> Python subscriber, also exercising C++ RPC.
+          sudo ip netns exec citoq-py-s env CITOQ_LIBRARY="$C_API_LIB" CITOQ_NATIVE_LIBRARY="$RUNTIME_LIB" PYTHONPATH="$PYTHON_MODULES" LD_LIBRARY_PATH="$NATIVE_LD" python3 "$CROSS" server --type-id "$TYPE_ID" --control-port 47612 --quic-port 4469 --announce-ip 10.202.0.11 --announce-port 47469 --cert "$GITHUB_WORKSPACE/server.pem" --key "$GITHUB_WORKSPACE/server.key" --ca "$GITHUB_WORKSPACE/ca.pem" > evidence/python-server-c-client.log 2>&1 &
+          py_c_server_pid=$!
+          sleep 0.5
+          c_client_status=0
+          timeout 25s sudo ip netns exec citoq-py-c env CITOQ_PUBSUB_SMOKE=1 CITOQ_C_API_DATA=1 "$C_CPP" client 47469 "$GITHUB_WORKSPACE/ca.pem" "$GITHUB_WORKSPACE/client.pem" "$GITHUB_WORKSPACE/client.key" > evidence/c-client-python-server.log 2>&1 || c_client_status=$?
+          py_c_server_status=0
+          wait "$py_c_server_pid" || py_c_server_status=$?
+          cat evidence/python-server-c-client.log
+          cat evidence/c-client-python-server.log
+          echo "G4_C_TO_PY_CLIENT=$c_client_status SERVER=$py_c_server_status"
+          test "$c_client_status" -eq 0
+          test "$py_c_server_status" -eq 0
+          grep -q 'python_cpp_server_rpc=1 pubsub_received=10' evidence/python-server-c-client.log
+          grep -q 'pubsub_sent=10 c_api=1' evidence/c-client-python-server.log
+
+          # Python publisher -> C ABI subscriber, plus actual C++ RPC.
+          sudo ip netns exec citoq-py-s env CITOQ_PUBSUB_SMOKE=1 CITOQ_C_API_DATA=1 "$C_CPP" server 4470 47613 10.202.0.11 47470 "$GITHUB_WORKSPACE/server.pem" "$GITHUB_WORKSPACE/server.key" "$GITHUB_WORKSPACE/ca.pem" > evidence/c-server-python-client.log 2>&1 &
+          c_server_pid=$!
+          sleep 0.5
+          py_c_client_status=0
+          timeout 25s sudo ip netns exec citoq-py-c env CITOQ_LIBRARY="$C_API_LIB" CITOQ_NATIVE_LIBRARY="$RUNTIME_LIB" PYTHONPATH="$PYTHON_MODULES" LD_LIBRARY_PATH="$NATIVE_LD" python3 "$CROSS" client --type-id "$TYPE_ID" --control-port 47470 --ca "$GITHUB_WORKSPACE/ca.pem" --client-cert "$GITHUB_WORKSPACE/client.pem" --client-key "$GITHUB_WORKSPACE/client.key" > evidence/python-client-c-server.log 2>&1 || py_c_client_status=$?
+          c_server_status=0
+          wait "$c_server_pid" || c_server_status=$?
+          cat evidence/python-client-c-server.log
+          cat evidence/c-server-python-client.log
+          echo "G4_PY_TO_C_CLIENT=$py_c_client_status SERVER=$c_server_status"
+          test "$py_c_client_status" -eq 0
+          test "$c_server_status" -eq 0
+          grep -q 'python_cpp_client_rpc=42 pubsub_sent=10' evidence/python-client-c-server.log
+          grep -q 'pubsub_received=10 c_api=1' evidence/c-server-python-client.log
+      - name: Preserve actual execution logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: citoq-python-native-mtls
+          path: evidence/
+          if-no-files-found: warn
