@@ -131,7 +131,7 @@ def trial(args,engine,repeat):
                     call.append('LD_LIBRARY_PATH='+os.environ['BENCH_BUNDLE_LIB'])
             call+=['/usr/bin/time','-f','user_s=%U system_s=%S max_rss_kb=%M','-o',str(resource.resolve())]
             if engine.startswith('zenoh-'):
-                call += [str(args.zenoh_python.resolve()),str(args.zenoh_script.resolve())]
+                call += [os.path.abspath(args.zenoh_python),str(args.zenoh_script.resolve())]
             else:
                 call += [str(exe)]
             call += [role,str(args.topics),str(args.bytes),str(args.samples),str(args.hz),

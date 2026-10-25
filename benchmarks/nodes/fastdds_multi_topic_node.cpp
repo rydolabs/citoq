@@ -55,7 +55,7 @@ int main(int argc,char**argv){
   if(!pub&&!subscriber)throw std::runtime_error("subscriber");
   DataWriterQos wq=DATAWRITER_QOS_DEFAULT;
   wq.reliability().kind=BEST_EFFORT_RELIABILITY_QOS;
-  wq.history().kind=KEEP_LAST_HISTORY_QOS;wq.history().depth=2048;
+  wq.history().kind=KEEP_LAST_HISTORY_QOS;wq.history().depth=32;
   DataReaderQos rq=DATAREADER_QOS_DEFAULT;
   rq.reliability().kind=BEST_EFFORT_RELIABILITY_QOS;
   rq.history().kind=KEEP_LAST_HISTORY_QOS;rq.history().depth=2048;
@@ -92,7 +92,15 @@ int main(int argc,char**argv){
       m.seq((uint32_t)(sent/topics));
       m.sent_ns(ns());
       m.payload(std::string(size-12,(char)(65+t%23)));
-      if(writers[t]->write(&m)!=ReturnCode_t::RETCODE_OK)throw std::runtime_error("write");
+      const auto rc=writers[t]->write(&m);
+      if(rc!=ReturnCode_t::RETCODE_OK){
+       std::cerr<<"FAST_DDS_WRITE_FAILURE index="<<sent<<" topic="<<t
+                <<" timeout="<<(rc==ReturnCode_t::RETCODE_TIMEOUT)
+                <<" resources="<<(rc==ReturnCode_t::RETCODE_OUT_OF_RESOURCES)
+                <<" precondition="<<(rc==ReturnCode_t::RETCODE_PRECONDITION_NOT_MET)
+                <<std::endl;
+       throw std::runtime_error("write");
+      }
       ++sent;
      }
     }
