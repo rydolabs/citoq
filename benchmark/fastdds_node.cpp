@@ -62,6 +62,12 @@ int main(int argc,char**argv) {
       qos.reliability().kind=RELIABLE_RELIABILITY_QOS;
       qos.history().kind=KEEP_LAST_HISTORY_QOS;
       qos.history().depth=1024;
+      // Explicitly size history resource limits; Fast DDS defaults can be
+      // smaller than requested KEEP_LAST depth (e.g. 100 samples).
+      qos.resource_limits().max_samples=1024;
+      qos.resource_limits().allocated_samples=1024;
+      qos.resource_limits().max_instances=1;
+      qos.resource_limits().max_samples_per_instance=1024;
       writer=publisher->create_datawriter(topic,qos);
       ensure(writer!=nullptr,"writer");
     } else {
@@ -71,6 +77,12 @@ int main(int argc,char**argv) {
       qos.reliability().kind=RELIABLE_RELIABILITY_QOS;
       qos.history().kind=KEEP_LAST_HISTORY_QOS;
       qos.history().depth=1024;
+      // Explicitly size history resource limits; Fast DDS defaults can be
+      // smaller than requested KEEP_LAST depth (e.g. 100 samples).
+      qos.resource_limits().max_samples=1024;
+      qos.resource_limits().allocated_samples=1024;
+      qos.resource_limits().max_instances=1;
+      qos.resource_limits().max_samples_per_instance=1024;
       reader=subscriber->create_datareader(topic,qos);
       ensure(reader!=nullptr,"reader");
     }
