@@ -1,0 +1,52 @@
+name: Fast DDS native netns adapter
+on:
+  push:
+    branches: ['bench/**']
+    paths:
+      - 'bench/m26/**'
+      - '.github/workflows/benchmark-fastdds.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fastdds-3node:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin baseline and install Fast DDS
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 08188eba73284dd1069016174ad216f5e02d2cfa HEAD
+          sudo apt-get update
+          sudo apt-get install -y libfastrtps-dev libfastcdr-dev fastddsgen g++ iproute2 python3 time
+          dpkg-query -W -f='${Package} ${Version}\n' libfastrtps-dev libfastcdr-dev fastddsgen > package-versions.txt
+          git rev-parse HEAD >> package-versions.txt
+      - name: Generate IDL and build native Fast DDS application
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/fastgen build/fastdds
+          fastddsgen -replace -d "$PWD/build/fastgen" "$PWD/bench/m26/BenchMsg.idl"
+          ls -la build/fastgen
+          mapfile -t generated < <(find build/fastgen -maxdepth 1 -type f \( -name '*.cxx' -o -name '*.cpp' \) ! -name '*Publisher*' ! -name '*Subscriber*' ! -name '*Main*' | sort)
+          test "${#generated[@]}" -ge 2
+          g++ -std=c++17 -O2 -pthread -Ibuild/fastgen bench/m26/fastdds_multi_topic_node.cpp "${generated[@]}" -lfastrtps -lfastcdr -o build/fastdds/fastdds_multi_topic_node
+      - name: Baseline and netem Fast DDS packet results
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python3 bench/m26/m26_efficiency.py --fastdds build/fastdds/fastdds_multi_topic_node --engines fastdds --nodes 3 --topics 4 --percent 50 --bytes 256 --samples 8 --hz 10 --repeats 2 --lifetime-ms 8500 --profile baseline --output evidence/baseline
+          python3 bench/m26/m26_efficiency.py --fastdds build/fastdds/fastdds_multi_topic_node --engines fastdds --nodes 3 --topics 4 --percent 50 --bytes 256 --samples 8 --hz 10 --repeats 2 --lifetime-ms 8500 --profile limited --output evidence/limited
+          cp package-versions.txt evidence/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fastdds-native-netns-results
+          path: |
+            evidence/
+            package-versions.txt
