@@ -1,19 +1,19 @@
-#include <cito/remote_routes.hpp>
+#include <citoq/remote_routes.hpp>
 
 #include <array>
 #include <cassert>
 
 int main() {
-    const cito::InterestKey position{
+    const citoq::InterestKey position{
         1,
         17,
         100};
 
-    cito::RemoteRouteIndex routes;
+    citoq::RemoteRouteIndex routes;
 
     const std::array first{
-        cito::DestinationId{101},
-        cito::DestinationId{102}};
+        citoq::DestinationId{101},
+        citoq::DestinationId{102}};
 
     assert(routes.replace(
         10,
@@ -36,7 +36,7 @@ int main() {
         first));
 
     const std::array second{
-        cito::DestinationId{103}};
+        citoq::DestinationId{103}};
 
     assert(routes.replace(
         10,

@@ -1,7 +1,7 @@
-#include <cito/cito_c.h>
-#include <cito/detail/embedded_host_runtime.hpp>
-#include <cito/detail/request_transport.hpp>
-#include <cito/identity.hpp>
+#include <citoq/citoq_c.h>
+#include <citoq/detail/embedded_host_runtime.hpp>
+#include <citoq/detail/request_transport.hpp>
+#include <citoq/identity.hpp>
 
 #include <array>
 #include <cassert>
@@ -13,7 +13,7 @@
 namespace {
 
 struct ProviderState {
-    cito_context_t* context{};
+    citoq_context_t* context{};
     int calls{0};
     std::uint64_t local_request_id{};
 };
@@ -50,29 +50,29 @@ void provider_callback(
     int accepted = 0;
 
     assert(
-        cito_context_reply(
+        citoq_context_reply(
             state->context,
             request_id,
-            CITO_REQUEST_OK,
+            CITOQ_REQUEST_OK,
             response.data(),
             response.size(),
             &accepted) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
 
     assert(accepted == 1);
 }
 
 struct CompletionState {
     int calls{0};
-    cito_request_status_t status{
-        CITO_REQUEST_INTERNAL};
+    citoq_request_status_t status{
+        CITOQ_REQUEST_INTERNAL};
     std::vector<std::uint8_t>
         payload;
 };
 
 void completion_callback(
     void* user,
-    cito_request_status_t status,
+    citoq_request_status_t status,
     const std::uint8_t* payload,
     std::size_t payload_size) {
     auto* state =
@@ -86,22 +86,22 @@ void completion_callback(
         payload + payload_size);
 }
 
-cito::detail::RequestKey make_key(
+citoq::detail::RequestKey make_key(
     std::uint64_t type,
     std::string_view resource) {
     return {
-        cito::stable_name_id(
+        citoq::stable_name_id(
             "acme"),
-        cito::stable_name_id(
+        citoq::stable_name_id(
             resource),
         type};
 }
 
 void seed_remote_routes(
-    cito::detail::EmbeddedHostRuntime&
+    citoq::detail::EmbeddedHostRuntime&
         runtime,
     std::span<
-        const cito::detail::RequestKey>
+        const citoq::detail::RequestKey>
         keys) {
     assert(
         runtime.host()
@@ -110,16 +110,16 @@ void seed_remote_routes(
                 9001,
                 10000,
                 0) ==
-        cito::
+        citoq::
             CoordinatorLeaseObservation::
                 Added);
 
-    std::vector<cito::InterestKey>
+    std::vector<citoq::InterestKey>
         capabilities;
 
     for (const auto& key : keys) {
         capabilities.push_back(
-            cito::detail::
+            citoq::detail::
                 request_handler_interest_key(
                     key));
     }
@@ -136,7 +136,7 @@ void seed_remote_routes(
                 capabilities));
 
     const std::array<
-        cito::DestinationId,
+        citoq::DestinationId,
         1> destination{77};
 
     for (const auto& capability :
@@ -154,30 +154,30 @@ void seed_remote_routes(
 } // namespace
 
 int main() {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     auto shared =
         acquire_embedded_host_runtime();
 
-    // Remote CTX1 request -> C ABI handler -> cito_context_reply().
-    cito_context_t* provider =
+    // Remote CTX1 request -> C ABI handler -> citoq_context_reply().
+    citoq_context_t* provider =
         nullptr;
 
     assert(
-        cito_context_create(
+        citoq_context_create(
             "acme",
             4,
             &provider) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
 
     ProviderState provider_state{
         provider};
 
-    cito_handler_t* provider_handler =
+    citoq_handler_t* provider_handler =
         nullptr;
 
     assert(
-        cito_context_handle(
+        citoq_context_handle(
             provider,
             500,
             "remote_in",
@@ -185,7 +185,7 @@ int main() {
             provider_callback,
             &provider_state,
             &provider_handler) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
 
     const auto inbound_key =
         make_key(
@@ -358,26 +358,26 @@ int main() {
                             });
                 }));
 
-    cito_context_t* requester =
+    citoq_context_t* requester =
         nullptr;
 
     assert(
-        cito_context_create(
+        citoq_context_create(
             "acme",
             4,
             &requester) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
 
     int has_handler = 0;
 
     assert(
-        cito_context_has_handler(
+        citoq_context_has_handler(
             requester,
             501,
             "remote_out",
             10,
             &has_handler) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
     assert(has_handler == 1);
 
     const std::array<
@@ -385,11 +385,11 @@ int main() {
         1> request_payload{9};
 
     CompletionState immediate;
-    cito_request_t* request =
+    citoq_request_t* request =
         nullptr;
 
     assert(
-        cito_context_request(
+        citoq_context_request(
             requester,
             501,
             "remote_out",
@@ -399,13 +399,13 @@ int main() {
             completion_callback,
             &immediate,
             &request) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
 
     assert(request != nullptr);
     assert(immediate.calls == 1);
     assert(
         immediate.status ==
-        CITO_REQUEST_OK);
+        CITOQ_REQUEST_OK);
     assert(
         immediate.payload ==
         std::vector<std::uint8_t>(
@@ -414,12 +414,12 @@ int main() {
     int cancelled = 99;
 
     assert(
-        cito_request_cancel(
+        citoq_request_cancel(
             request,
             &cancelled) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
     assert(cancelled == 0);
-    cito_request_destroy(request);
+    citoq_request_destroy(request);
 
     // Explicit C cancellation traverses CTX1 Cancel and invalidates the
     // remote handler's delayed reply closure.
@@ -427,7 +427,7 @@ int main() {
     request = nullptr;
 
     assert(
-        cito_context_request(
+        citoq_context_request(
             requester,
             502,
             "slow",
@@ -437,7 +437,7 @@ int main() {
             completion_callback,
             &slow,
             &request) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
 
     assert(slow.calls == 0);
     assert(
@@ -454,16 +454,16 @@ int main() {
     cancelled = 0;
 
     assert(
-        cito_request_cancel(
+        citoq_request_cancel(
             request,
             &cancelled) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
 
     assert(cancelled == 1);
     assert(slow.calls == 1);
     assert(
         slow.status ==
-        CITO_REQUEST_CANCELLED);
+        CITOQ_REQUEST_CANCELLED);
     assert(
         server.request_network()
             .transport()
@@ -479,26 +479,26 @@ int main() {
             RequestStatus::Ok,
             late));
 
-    cito_request_destroy(request);
+    citoq_request_destroy(request);
 
     // Raw C Context destruction suppresses the requester callback while
     // still sending remote cancellation and clearing both runtimes.
-    cito_context_t* temporary =
+    citoq_context_t* temporary =
         nullptr;
 
     assert(
-        cito_context_create(
+        citoq_context_create(
             "acme",
             4,
             &temporary) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
 
     CompletionState destroyed;
-    cito_request_t* destroyed_request =
+    citoq_request_t* destroyed_request =
         nullptr;
 
     assert(
-        cito_context_request(
+        citoq_context_request(
             temporary,
             503,
             "destroy",
@@ -508,7 +508,7 @@ int main() {
             completion_callback,
             &destroyed,
             &destroyed_request) ==
-        CITO_STATUS_OK);
+        CITOQ_STATUS_OK);
 
     assert(destroyed.calls == 0);
     assert(
@@ -522,7 +522,7 @@ int main() {
             .inbound_count() ==
         1);
 
-    cito_context_destroy(
+    citoq_context_destroy(
         temporary);
 
     assert(destroyed.calls == 0);
@@ -541,10 +541,10 @@ int main() {
             RequestStatus::Ok,
             late));
 
-    cito_request_destroy(
+    citoq_request_destroy(
         destroyed_request);
 
-    cito_context_destroy(
+    citoq_context_destroy(
         requester);
 
     assert(
@@ -552,9 +552,9 @@ int main() {
             .detach_session(
                 77));
 
-    cito_handler_destroy(
+    citoq_handler_destroy(
         provider_handler);
-    cito_context_destroy(
+    citoq_context_destroy(
         provider);
 
     return 0;

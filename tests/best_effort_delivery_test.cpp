@@ -1,12 +1,12 @@
-#include <cito/detail/best_effort_delivery.hpp>
+#include <citoq/detail/best_effort_delivery.hpp>
 
 #include <cassert>
 #include <cstdint>
 #include <vector>
 
 int main() {
-    using cito::detail::DeliveryTarget;
-    using cito::detail::Locality;
+    using citoq::detail::DeliveryTarget;
+    using citoq::detail::Locality;
 
     int encode_calls = 0;
     int local_calls = 0;
@@ -20,7 +20,7 @@ int main() {
     };
 
     auto local_send =
-        [&](cito::DestinationId) {
+        [&](citoq::DestinationId) {
             ++local_calls;
         };
 
@@ -29,7 +29,7 @@ int main() {
     const void* udp_payload = nullptr;
 
     auto shm_send =
-        [&](cito::DestinationId,
+        [&](citoq::DestinationId,
             const auto& payload) {
             ++shm_calls;
 
@@ -43,7 +43,7 @@ int main() {
         };
 
     auto udp_send =
-        [&](cito::DestinationId,
+        [&](citoq::DestinationId,
             const auto& payload) {
             ++udp_calls;
             udp_payload =
@@ -55,7 +55,7 @@ int main() {
         DeliveryTarget> none;
 
     auto result =
-        cito::detail::
+        citoq::detail::
             deliver_best_effort(
                 none,
                 local_send,
@@ -73,7 +73,7 @@ int main() {
             {2, Locality::SameProcess}};
 
     result =
-        cito::detail::
+        citoq::detail::
             deliver_best_effort(
                 local_only,
                 local_send,
@@ -97,7 +97,7 @@ int main() {
             {6, Locality::SameHost}};
 
     result =
-        cito::detail::
+        citoq::detail::
             deliver_best_effort(
                 mixed,
                 local_send,

@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "citoq"
 version = "0.1.0.dev0"
-description = "CitoQ native Python binding facade"
+description = "CitoQ Python bindings for the native CitoQ runtime"
 requires-python = ">=3.9"
 classifiers = ["Development Status :: 2 - Pre-Alpha", "Programming Language :: Python :: 3"]
 
 [tool.setuptools]
 package-dir = {"" = "."}
-packages = ["cito", "citoq"]
+packages = ["citoq"]

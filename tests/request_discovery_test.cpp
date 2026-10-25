@@ -1,5 +1,5 @@
-#include <cito/detail/discovery_control_core.hpp>
-#include <cito/detail/request_reply_core.hpp>
+#include <citoq/detail/discovery_control_core.hpp>
+#include <citoq/detail/request_reply_core.hpp>
 
 #include <array>
 #include <cassert>
@@ -8,8 +8,8 @@
 namespace {
 
 void learn(
-    cito::detail::DiscoveryControlCore& remote,
-    cito::detail::DiscoveryControlCore& requester,
+    citoq::detail::DiscoveryControlCore& remote,
+    citoq::detail::DiscoveryControlCore& requester,
     std::uint16_t port,
     std::uint64_t now) {
     const auto announcement =
@@ -25,7 +25,7 @@ void learn(
     assert(actions.size() == 1);
 
     const auto snapshot_request =
-        cito::decode_snapshot_request(
+        citoq::decode_snapshot_request(
             actions[0].bytes);
 
     const auto batch_action =
@@ -33,7 +33,7 @@ void learn(
             snapshot_request);
 
     const auto batch =
-        cito::decode_snapshot_batch(
+        citoq::decode_snapshot_batch(
             batch_action.bytes);
 
     actions =
@@ -46,24 +46,24 @@ void learn(
 } // namespace
 
 int main() {
-    const cito::detail::RequestKey request{
+    const citoq::detail::RequestKey request{
         7,
         17,
         100};
 
-    const cito::InterestKey ordinary{
+    const citoq::InterestKey ordinary{
         request.scope,
         request.resource,
         request.request_type};
 
     const auto capability =
-        cito::detail::
+        citoq::detail::
             request_handler_interest_key(
                 request);
 
     // Golden identity: independent of native endian/integer layout.
     assert(
-        cito::detail::
+        citoq::detail::
             request_handler_capability_type(
                 100) ==
         9713800924229500400ull);
@@ -72,9 +72,9 @@ int main() {
     assert(capability.resource == ordinary.resource);
     assert(capability.type != ordinary.type);
 
-    cito::detail::HostRuntimeCore provider;
-    cito::detail::HostRuntimeCore subscriber;
-    cito::detail::HostRuntimeCore requester;
+    citoq::detail::HostRuntimeCore provider;
+    citoq::detail::HostRuntimeCore subscriber;
+    citoq::detail::HostRuntimeCore requester;
 
     assert(provider.register_app(
         10,
@@ -98,19 +98,19 @@ int main() {
         11,
         ordinary);
 
-    cito::detail::DiscoveryControlCore
+    citoq::detail::DiscoveryControlCore
         provider_control(
             provider,
             10,
             1001);
 
-    cito::detail::DiscoveryControlCore
+    citoq::detail::DiscoveryControlCore
         subscriber_control(
             subscriber,
             11,
             1101);
 
-    cito::detail::DiscoveryControlCore
+    citoq::detail::DiscoveryControlCore
         requester_control(
             requester,
             20,
@@ -158,13 +158,13 @@ int main() {
     assert(actions[0].coordinator == 10);
 
     const auto route =
-        cito::decode_route_request(
+        citoq::decode_route_request(
             actions[0].bytes);
 
     assert(route.key == capability);
 
     const std::array<
-        cito::RouteEndpoint,
+        citoq::RouteEndpoint,
         1> endpoint{{
             {77, 48010}}};
 
@@ -177,7 +177,7 @@ int main() {
     assert(!route_action.bytes.empty());
 
     const auto route_batch =
-        cito::decode_route_batch(
+        citoq::decode_route_batch(
             route_action.bytes);
 
     assert(

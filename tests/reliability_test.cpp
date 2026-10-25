@@ -1,11 +1,11 @@
-#include <cito/detail/reliability.hpp>
+#include <citoq/detail/reliability.hpp>
 
 #include <array>
 #include <cassert>
 #include <cstdint>
 
 int main() {
-    using namespace cito::detail::reliable;
+    using namespace citoq::detail::reliable;
 
     SenderHistory history(
         4,

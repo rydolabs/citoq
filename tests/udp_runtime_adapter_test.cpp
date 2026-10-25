@@ -1,13 +1,13 @@
-#include <cito/detail/udp_runtime_adapter.hpp>
+#include <citoq/detail/udp_runtime_adapter.hpp>
 
 #include <array>
 #include <cassert>
 
 int main() {
-    const cito::InterestKey key{
+    const citoq::InterestKey key{
         7, 17, 100};
 
-    cito::detail::HostRuntimeCore
+    citoq::detail::HostRuntimeCore
         subscriber;
     subscriber.register_app(
         1,
@@ -18,29 +18,29 @@ int main() {
         1,
         key);
 
-    cito::detail::UdpRuntimeAdapter
+    citoq::detail::UdpRuntimeAdapter
         sub_udp(
             subscriber,
             10,
             1001);
 
     const std::array<
-        cito::RouteEndpoint,
+        citoq::RouteEndpoint,
         1> endpoints{{
             {77, 48010, 4433}}};
 
     sub_udp.set_local_route_endpoints(
         endpoints);
 
-    cito::detail::HostRuntimeCore
+    citoq::detail::HostRuntimeCore
         publisher;
-    cito::detail::UdpRuntimeAdapter
+    citoq::detail::UdpRuntimeAdapter
         pub_udp(
             publisher,
             20,
             2001);
 
-    const cito::detail::UdpEndpoint
+    const citoq::detail::UdpEndpoint
         sub_source{
             0x0a000002u,
             47010};
@@ -58,7 +58,7 @@ int main() {
         sends[0].endpoint ==
         sub_source);
 
-    const cito::detail::UdpEndpoint
+    const citoq::detail::UdpEndpoint
         pub_source{
             0x0a000001u,
             47020};

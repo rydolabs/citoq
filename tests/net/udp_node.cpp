@@ -1,5 +1,5 @@
-#include <cito/data_packet.hpp>
-#include <cito/discovery.hpp>
+#include <citoq/data_packet.hpp>
+#include <citoq/discovery.hpp>
 
 #include <arpa/inet.h>
 #include <poll.h>
@@ -89,7 +89,7 @@ int subscriber(int argc, char** argv) {
     const std::string broadcast_ip = argv[6];
     const bool expect_data = std::stoi(argv[7]) != 0;
 
-    const cito::InterestKey key{7, 17, type};
+    const citoq::InterestKey key{7, 17, type};
 
     const int data_fd = make_udp();
     if (!bind_udp(data_fd, data_port)) {
@@ -119,14 +119,14 @@ int subscriber(int argc, char** argv) {
         return 23;
     }
 
-    const cito::InterestAdvertisement advertisement{
-        cito::InterestOp::Add,
+    const citoq::InterestAdvertisement advertisement{
+        citoq::InterestOp::Add,
         data_port,
         700,
-        static_cast<cito::DestinationId>(node),
+        static_cast<citoq::DestinationId>(node),
         key};
 
-    const auto packet = cito::encode_interest(advertisement);
+    const auto packet = citoq::encode_interest(advertisement);
     const auto start = Clock::now();
     auto next_send = start;
 
@@ -164,7 +164,7 @@ int subscriber(int argc, char** argv) {
             }
 
             try {
-                const auto data = cito::decode_data_packet_view(bytes);
+                const auto data = citoq::decode_data_packet_view(bytes);
                 constexpr std::string_view expected = "hello";
                 if (data.key == key &&
                     data.payload.size() == expected.size() &&
@@ -214,7 +214,7 @@ int publisher(int argc, char** argv) {
     const auto expected_destinations = std::stoull(argv[4]);
     const auto listen_ms = std::stoull(argv[5]);
 
-    const cito::InterestKey target{7, 17, target_type};
+    const citoq::InterestKey target{7, 17, target_type};
 
     const int fd = make_udp();
     int yes = 1;
@@ -230,10 +230,10 @@ int publisher(int argc, char** argv) {
         return 31;
     }
 
-    cito::InterestIndex index;
-    cito::InterestLeaseTable leases(index);
+    citoq::InterestIndex index;
+    citoq::InterestLeaseTable leases(index);
     std::unordered_map<
-        cito::DestinationId,
+        citoq::DestinationId,
         sockaddr_in> endpoints;
 
     const auto start = Clock::now();
@@ -258,13 +258,13 @@ int publisher(int argc, char** argv) {
 
             try {
                 const auto advertisement =
-                    cito::decode_interest(bytes);
+                    citoq::decode_interest(bytes);
 
                 leases.observe(
                     advertisement,
                     now_ms());
 
-                if (advertisement.op == cito::InterestOp::Add) {
+                if (advertisement.op == citoq::InterestOp::Add) {
                     from.sin_port =
                         htons(advertisement.data_port);
                     endpoints[advertisement.destination] = from;
@@ -295,12 +295,12 @@ int publisher(int argc, char** argv) {
         return 34;
     }
 
-    const cito::DataPacket data{
+    const citoq::DataPacket data{
         target,
         std::vector<std::uint8_t>{
             'h', 'e', 'l', 'l', 'o'}};
 
-    const auto payload = cito::encode_data_packet(data);
+    const auto payload = citoq::encode_data_packet(data);
 
     for (const auto id : destinations) {
         const auto endpoint = endpoints.find(id);

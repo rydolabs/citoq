@@ -1,12 +1,12 @@
-#include <cito/detail/reliability.hpp>
-#include <cito/detail/reliable_packet.hpp>
+#include <citoq/detail/reliability.hpp>
+#include <citoq/detail/reliable_packet.hpp>
 
 #include <array>
 #include <cassert>
 #include <cstdint>
 
 int main() {
-    using namespace cito::detail::reliable;
+    using namespace citoq::detail::reliable;
 
     SenderHistory sender(
         8,
@@ -44,7 +44,7 @@ int main() {
     assert(
         nack->bitmap == 0x1);
 
-    const cito::InterestKey key{
+    const citoq::InterestKey key{
         7, 17, 100};
     constexpr StreamId stream = 99;
 

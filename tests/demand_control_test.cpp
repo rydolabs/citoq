@@ -1,4 +1,4 @@
-#include <cito/demand_control.hpp>
+#include <citoq/demand_control.hpp>
 
 #include <array>
 #include <cassert>
@@ -6,17 +6,17 @@
 #include <stdexcept>
 
 int main() {
-    cito::DemandSummaryAnnouncement announcement{
+    citoq::DemandSummaryAnnouncement announcement{
         7,
         47000,
         750,
         {11, 9, 2}};
 
     const auto announcement_bytes =
-        cito::encode_summary_announcement(
+        citoq::encode_summary_announcement(
             announcement);
     const auto announcement_roundtrip =
-        cito::decode_summary_announcement(
+        citoq::decode_summary_announcement(
             announcement_bytes);
 
     assert(
@@ -32,7 +32,7 @@ int main() {
         announcement_roundtrip.lease_ms ==
         750);
 
-    cito::DemandSnapshotRequest request{
+    citoq::DemandSnapshotRequest request{
         7,
         11,
         9,
@@ -40,27 +40,27 @@ int main() {
         32};
 
     const auto request_roundtrip =
-        cito::decode_snapshot_request(
-            cito::encode_snapshot_request(
+        citoq::decode_snapshot_request(
+            citoq::encode_snapshot_request(
                 request));
     assert(request_roundtrip.coordinator == 7);
     assert(request_roundtrip.limit == 32);
     assert(request_roundtrip.version == 9);
 
     const std::array keys{
-        cito::InterestKey{1, 2, 100},
-        cito::InterestKey{1, 2, 200}};
+        citoq::InterestKey{1, 2, 100},
+        citoq::InterestKey{1, 2, 200}};
 
     const auto batch =
-        cito::make_snapshot_batch(
+        citoq::make_snapshot_batch(
             7,
             announcement.stamp,
             keys,
             0);
     const auto batch_bytes =
-        cito::encode_snapshot_batch(batch);
+        citoq::encode_snapshot_batch(batch);
     const auto batch_roundtrip =
-        cito::decode_snapshot_batch(
+        citoq::decode_snapshot_batch(
             batch_bytes);
 
     assert(
@@ -74,14 +74,14 @@ int main() {
     // The bounded batch stays comfortably below a normal safe UDP payload.
     assert(batch_bytes.size() < 1200);
 
-    const cito::RouteRequest route_request{
+    const citoq::RouteRequest route_request{
         7,
         11,
         keys[0]};
 
     const auto route_request_roundtrip =
-        cito::decode_route_request(
-            cito::encode_route_request(
+        citoq::decode_route_request(
+            citoq::encode_route_request(
                 route_request));
     assert(
         route_request_roundtrip.key ==
@@ -90,7 +90,7 @@ int main() {
         route_request_roundtrip.incarnation ==
         11);
 
-    const cito::RouteBatch routes{
+    const citoq::RouteBatch routes{
         7,
         11,
         keys[0],
@@ -99,13 +99,13 @@ int main() {
             {92, 48002, 4432}}};
 
     const auto route_bytes =
-        cito::encode_route_batch(
+        citoq::encode_route_batch(
             routes);
 
     assert(route_bytes[3] == '5');
 
     const auto route_roundtrip =
-        cito::decode_route_batch(
+        citoq::decode_route_batch(
             route_bytes);
 
     assert(
@@ -128,20 +128,20 @@ int main() {
         4431);
 
     // CTR4 remains decodable: its old reserved u16 maps to quic_port=0.
-    cito::RouteBatch legacy_routes{
+    citoq::RouteBatch legacy_routes{
         7,
         11,
         keys[0],
         {{93, 48003, 0}}};
 
     auto legacy_bytes =
-        cito::encode_route_batch(
+        citoq::encode_route_batch(
             legacy_routes);
 
     legacy_bytes[3] = '4';
 
     const auto legacy_roundtrip =
-        cito::decode_route_batch(
+        citoq::decode_route_batch(
             legacy_bytes);
 
     assert(
@@ -158,32 +158,32 @@ int main() {
 
     bool empty_transport_failed = false;
     try {
-        cito::RouteBatch bad_routes{
+        citoq::RouteBatch bad_routes{
             7,
             11,
             keys[0],
             {{94, 0, 0}}};
-        (void)cito::encode_route_batch(
+        (void)citoq::encode_route_batch(
             bad_routes);
     } catch (const std::invalid_argument&) {
         empty_transport_failed = true;
     }
     assert(empty_transport_failed);
 
-    std::array<cito::InterestKey, 33> many{};
-    const cito::DemandSummaryStamp stamp{
+    std::array<citoq::InterestKey, 33> many{};
+    const citoq::DemandSummaryStamp stamp{
         1,
         1,
         33};
 
     const auto first =
-        cito::make_snapshot_batch(
+        citoq::make_snapshot_batch(
             1,
             stamp,
             many,
             0);
     const auto second =
-        cito::make_snapshot_batch(
+        citoq::make_snapshot_batch(
             1,
             stamp,
             many,
@@ -194,13 +194,13 @@ int main() {
 
     bool invalid_limit = false;
     try {
-        cito::DemandSnapshotRequest bad{
+        citoq::DemandSnapshotRequest bad{
             1,
             1,
             1,
             0,
             33};
-        (void)cito::encode_snapshot_request(
+        (void)citoq::encode_snapshot_request(
             bad);
     } catch (const std::invalid_argument&) {
         invalid_limit = true;
@@ -209,12 +209,12 @@ int main() {
 
     bool zero_progress_failed = false;
     try {
-        cito::DemandSnapshotBatch bad{
+        citoq::DemandSnapshotBatch bad{
             7,
             {11, 9, 1},
             0,
             {}};
-        (void)cito::encode_snapshot_batch(
+        (void)citoq::encode_snapshot_batch(
             bad);
     } catch (const std::invalid_argument&) {
         zero_progress_failed = true;

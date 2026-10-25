@@ -1,4 +1,4 @@
-#include <cito/cito.hpp>
+#include <citoq/citoq.hpp>
 
 #include <cassert>
 #include <chrono>
@@ -15,7 +15,7 @@ struct Pong {
     std::uint8_t value{};
 };
 
-namespace cito {
+namespace citoq {
 
 template <>
 struct StaticType<Ping> {
@@ -92,37 +92,37 @@ struct StaticCodec<Pong> {
     }
 };
 
-} // namespace cito
+} // namespace citoq
 
 int main() {
     using PingCodec =
-        cito::StaticCodec<Ping>;
+        citoq::StaticCodec<Ping>;
     using PongCodec =
-        cito::StaticCodec<Pong>;
+        citoq::StaticCodec<Pong>;
 
-    cito::Context requester("acme");
+    citoq::Context requester("acme");
 
-    const cito::detail::RequestKey request_key{
-        cito::stable_name_id("acme"),
-        cito::stable_name_id("robot_1"),
-        cito::static_type_ref<Ping>()
+    const citoq::detail::RequestKey request_key{
+        citoq::stable_name_id("acme"),
+        citoq::stable_name_id("robot_1"),
+        citoq::static_type_ref<Ping>()
             .type_id()};
 
     const auto capability =
-        cito::detail::
+        citoq::detail::
             request_handler_interest_key(
                 request_key);
 
-    const cito::InterestKey ordinary_key{
+    const citoq::InterestKey ordinary_key{
         request_key.scope,
         request_key.resource,
         request_key.request_type};
 
     auto runtime =
-        cito::detail::
+        citoq::detail::
             acquire_embedded_host_runtime();
 
-    cito::Context ordinary_subscriber(
+    citoq::Context ordinary_subscriber(
         "acme");
     auto ordinary_subscription =
         ordinary_subscriber
@@ -149,7 +149,7 @@ int main() {
     assert(!missing.result());
     assert(
         missing.result().status() ==
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Unavailable);
 
     // No handler demand means no request serialization.
@@ -159,7 +159,7 @@ int main() {
         requester.request(
             "robot_1",
             Ping{8},
-            cito::RequestOptions{
+            citoq::RequestOptions{
                 std::chrono::
                     milliseconds(25)});
 
@@ -168,7 +168,7 @@ int main() {
     assert(
         missing_with_options.result()
             .status() ==
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Unavailable);
     assert(PingCodec::encodes == 0);
 
@@ -179,7 +179,7 @@ int main() {
         (void)requester.request(
             "robot_1",
             Ping{9},
-            cito::RequestOptions{
+            citoq::RequestOptions{
                 std::chrono::
                     milliseconds(-1)});
     } catch (
@@ -191,7 +191,7 @@ int main() {
     assert(negative_timeout_rejected);
     assert(PingCodec::encodes == 0);
 
-    cito::Context provider("acme");
+    citoq::Context provider("acme");
 
     auto provider_handler =
         provider.handle<Ping>(

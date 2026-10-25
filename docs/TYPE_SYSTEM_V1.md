@@ -1,4 +1,4 @@
-# Cito Type System v1 — Direction
+# CitoQ Type System v1 — Direction
 
 ## Goal
 
@@ -20,9 +20,9 @@ They must converge on the same `TypeId`, stable `FieldId`s, schema shape, and ev
 Normal applications should only need:
 
 ```cpp
-#include <cito/cito.hpp>
+#include <citoq/citoq.hpp>
 
-cito::Context ctx;
+citoq::Context ctx;
 ctx.on<Position>(handler);
 ctx.publish(Position{...});
 ```
@@ -32,7 +32,7 @@ Advanced users opt in explicitly.
 Scalar shorthand remains small:
 
 ```cpp
-auto position = cito::TypeBuilder("acme.navigation.Position")
+auto position = citoq::TypeBuilder("acme.navigation.Position")
     .member<double>(1, "x")
     .member<double>(2, "y")
     .member<std::string>(3, "frame").bound(16)
@@ -42,12 +42,12 @@ auto position = cito::TypeBuilder("acme.navigation.Position")
 Complex type expressions are explicit so nested bounds are unambiguous:
 
 ```cpp
-auto telemetry = cito::TypeBuilder("acme.Telemetry")
-    .member(1, "pose", cito::types::structure(position))
+auto telemetry = citoq::TypeBuilder("acme.Telemetry")
+    .member(1, "pose", citoq::types::structure(position))
     .member(2, "coefficients",
-        cito::types::array(cito::types::scalar<float>(), 4))
+        citoq::types::array(citoq::types::scalar<float>(), 4))
     .member(3, "tags",
-        cito::types::sequence(cito::types::string(64), 20))
+        citoq::types::sequence(citoq::types::string(64), 20))
     .build();
 ```
 

@@ -1,14 +1,14 @@
-#include <cito/interest.hpp>
+#include <citoq/interest.hpp>
 
 #include <cassert>
 #include <cstdint>
 
 int main() {
-    const cito::InterestKey position{1, 17, 100};
-    const cito::InterestKey battery{1, 17, 200};
-    const cito::InterestKey other_scope{2, 17, 100};
+    const citoq::InterestKey position{1, 17, 100};
+    const citoq::InterestKey battery{1, 17, 200};
+    const citoq::InterestKey other_scope{2, 17, 100};
 
-    cito::HostInterests host;
+    citoq::HostInterests host;
     assert(host.version() == 0);
 
     assert(host.add(position));
@@ -34,8 +34,8 @@ int main() {
     assert(host.version() == 3);
     assert(!host.contains(position));
 
-    cito::RemoteSummaryTracker summaries;
-    const cito::DemandSummaryStamp first_stamp{
+    citoq::RemoteSummaryTracker summaries;
+    const citoq::DemandSummaryStamp first_stamp{
         1001,
         host.version(),
         host.unique_interest_count()};
@@ -48,7 +48,7 @@ int main() {
     ++changed_stamp.version;
     assert(summaries.needs_snapshot(9, changed_stamp));
 
-    const cito::DemandSummaryStamp restarted{
+    const citoq::DemandSummaryStamp restarted{
         1002,
         0,
         0};
@@ -56,7 +56,7 @@ int main() {
     summaries.mark_applied(9, restarted);
     assert(!summaries.needs_snapshot(9, restarted));
 
-    cito::InterestIndex index;
+    citoq::InterestIndex index;
     assert(index.add(position, 10));
     assert(!index.add(position, 10));
     assert(index.add(position, 11));
@@ -69,7 +69,7 @@ int main() {
     assert(pos.contains(11));
     assert(!pos.contains(12));
 
-    assert(index.lookup(cito::InterestKey{1, 18, 100}).empty());
+    assert(index.lookup(citoq::InterestKey{1, 18, 100}).empty());
     assert(index.lookup(other_scope).contains(13));
     assert(index.edge_count() == 4);
 

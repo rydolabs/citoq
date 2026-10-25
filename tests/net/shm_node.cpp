@@ -1,4 +1,4 @@
-#include <cito/detail/shm_ring.hpp>
+#include <citoq/detail/shm_ring.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -13,7 +13,7 @@ namespace {
 int writer(
     const std::string& name,
     std::uint64_t count) {
-    cito::detail::ShmRingWriter ring(
+    citoq::detail::ShmRingWriter ring(
         name,
         256,
         64,
@@ -47,7 +47,7 @@ int writer(
 int reader(
     const std::string& name,
     std::uint64_t expected) {
-    cito::detail::ShmRingReader ring(
+    citoq::detail::ShmRingReader ring(
         name);
 
     std::vector<std::uint8_t> bytes;

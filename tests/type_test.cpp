@@ -1,4 +1,4 @@
-#include <cito/dynamic.hpp>
+#include <citoq/dynamic.hpp>
 
 #include <cassert>
 #include <cstdint>
@@ -6,7 +6,7 @@
 #include <string>
 
 int main() {
-    const auto type = cito::TypeBuilder("acme.navigation.Position")
+    const auto type = citoq::TypeBuilder("acme.navigation.Position")
         .member<double>(1, "x")
         .member<double>(2, "y")
         .member<std::string>(3, "frame").bound(16)
@@ -20,7 +20,7 @@ int main() {
     assert(type.find("timestamp")->optional);
     assert(type.find("frame")->type.bound == 16);
 
-    const auto same = cito::TypeBuilder("acme.navigation.Position")
+    const auto same = citoq::TypeBuilder("acme.navigation.Position")
         .member<double>(1, "x")
         .member<double>(2, "y")
         .member<std::string>(3, "frame").bound(16)
@@ -30,7 +30,7 @@ int main() {
     assert(type.type_id() == same.type_id());
     assert(type.schema_hash() == same.schema_hash());
 
-    const auto evolved = cito::TypeBuilder("acme.navigation.Position")
+    const auto evolved = citoq::TypeBuilder("acme.navigation.Position")
         .member<double>(1, "x")
         .member<double>(2, "y")
         .member<std::string>(3, "frame").bound(16)
@@ -41,7 +41,7 @@ int main() {
     assert(type.type_id() == evolved.type_id());
     assert(type.schema_hash() != evolved.schema_hash());
 
-    cito::DynamicData data(type);
+    citoq::DynamicData data(type);
     data["x"] = 1.0;
     data.set("y", 2.0);
     data["frame"] = "map";
@@ -61,7 +61,7 @@ int main() {
 
     bool duplicate_failed = false;
     try {
-        (void)cito::TypeBuilder("Bad")
+        (void)citoq::TypeBuilder("Bad")
             .member<double>(1, "x")
             .member<double>(1, "y")
             .build();

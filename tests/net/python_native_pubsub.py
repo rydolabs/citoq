@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 import struct
 import time
-import cito
-from cito.native_runtime import NativeRuntime
+import citoq
+from citoq.native_runtime import NativeRuntime
 
 TYPE_ID = 424242
 COUNT = 100
@@ -39,7 +39,7 @@ def main() -> None:
         client_cert=args.client_cert,
         client_key=args.client_key,
     ) as transport:
-        with cito.Context("acme") as context:
+        with citoq.Context("acme") as context:
             deadline = time.monotonic() + 20
             if server:
                 received: set[int] = set()

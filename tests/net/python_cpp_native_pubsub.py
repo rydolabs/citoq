@@ -4,8 +4,8 @@ import argparse
 import asyncio
 import struct
 import time
-import cito
-from cito.native_runtime import NativeRuntime
+import citoq
+from citoq.native_runtime import NativeRuntime
 
 class NetPong:
     def __init__(self, value: int):
@@ -63,7 +63,7 @@ async def main():
         client_cert=a.client_cert,
         client_key=a.client_key,
     ) as transport:
-        with cito.Context("acme") as context:
+        with citoq.Context("acme") as context:
             deadline=time.monotonic()+20
             if server:
                 counts={"rpc":0,"duplicate":0}

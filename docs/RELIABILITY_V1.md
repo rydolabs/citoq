@@ -1,4 +1,4 @@
-# Cito Reliability v1 — Selective Recovery Prototype
+# CitoQ Reliability v1 — Selective Recovery Prototype
 
 ## Goal
 

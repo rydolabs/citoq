@@ -1,4 +1,4 @@
-# Cito Network Testing Strategy
+# CitoQ Network Testing Strategy
 
 ## Rule
 
@@ -18,7 +18,7 @@ Use the current development environment for:
 
 ## 2. Same-host SHM
 
-When SHM is introduced, run multiple real OS processes on one runner/host. Do not use network namespaces to model SHM peers: Cito's SHM contract is explicitly same-host, cross-process communication.
+When SHM is introduced, run multiple real OS processes on one runner/host. Do not use network namespaces to model SHM peers: CitoQ's SHM contract is explicitly same-host, cross-process communication.
 
 ## 3. Independent Linux network nodes
 
@@ -29,14 +29,14 @@ Recommended topology:
 ```text
 GitHub Actions Ubuntu VM
         |
-     br-cito
+     br-citoq
    /    |     \
 ns-a   ns-b   ns-c
  |      |      |
 IP A   IP B   IP C
 ```
 
-Each namespace gets its own veth interface, IP address, routing table, socket namespace, and loopback device. Cito test nodes are executed with `ip netns exec`.
+Each namespace gets its own veth interface, IP address, routing table, socket namespace, and loopback device. CitoQ test nodes are executed with `ip netns exec`.
 
 Start with 3-node correctness tests, then increase to roughly 10 and 30 nodes for regression coverage. Large-scale algorithmic tests remain in-process simulations rather than thousands of namespaces.
 
@@ -64,9 +64,9 @@ A feature reaches GitHub Actions only after its algorithmic/unit behavior is tes
 The Linux Actions workflow now runs two discovery/data smokes on the same three isolated namespaces:
 
 ```text
-cito-pub  10.201.0.11
-cito-pos  10.201.0.12  DemandKey type=Position
-cito-bat  10.201.0.13  DemandKey type=Battery
+citoq-pub  10.201.0.11
+citoq-pos  10.201.0.12  DemandKey type=Position
+citoq-bat  10.201.0.13  DemandKey type=Battery
 ```
 
 The legacy exact-key advertisement smoke remains for regression coverage.

@@ -4,7 +4,7 @@ import sys
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("cito_idlc", ROOT / "tools" / "cito_idlc.py")
+spec = importlib.util.spec_from_file_location("citoq_idlc", ROOT / "tools" / "citoq_idlc.py")
 mod = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = mod
 spec.loader.exec_module(mod)
@@ -41,8 +41,8 @@ class IdlcTests(unittest.TestCase):
         self.assertTrue(telemetry.fields[4].optional)
         cpp = mod.generate_cpp(schema, "telemetry.idl")
         self.assertIn('TypeBuilder("acme.Telemetry")', cpp)
-        self.assertIn('cito::types::array(cito::types::scalar<float>(), 4)', cpp)
-        self.assertIn('cito::types::sequence(cito::types::string(64), 20)', cpp)
+        self.assertIn('citoq::types::array(citoq::types::scalar<float>(), 4)', cpp)
+        self.assertIn('citoq::types::sequence(citoq::types::string(64), 20)', cpp)
         self.assertIn('template <> struct StaticCodec<acme::Telemetry>', cpp)
         self.assertIn('static constexpr bool direct = true;', cpp)
         self.assertIn('static_detail::encode_field(', cpp)

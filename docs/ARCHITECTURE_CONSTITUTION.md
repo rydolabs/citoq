@@ -1,8 +1,8 @@
-# Cito Architecture Constitution v1.0 (Draft)
+# CitoQ Architecture Constitution v1.0 (Draft)
 
 ## Product goal
 
-Cito is a lightweight typed messaging runtime that lets applications publish and receive data without requiring users to manage peers, ports, transport selection, discovery machinery, or serialization calls.
+CitoQ is a lightweight typed messaging runtime that lets applications publish and receive data without requiring users to manage peers, ports, transport selection, discovery machinery, or serialization calls.
 
 ## Three core product pillars
 
@@ -10,7 +10,7 @@ Cito is a lightweight typed messaging runtime that lets applications publish and
 2. **Demand-indexed discovery and delivery** — conceptually like using a GIS index instead of checking every road or destination: publishing asks the demand index for only the destinations that need `Scope + Resource + Type`, then sends only there.
 3. **Single event-loop ownership + bounded worker pool** — like libuv/Chromium-style runtime architecture: one loop thread owns I/O and mutable runtime state; CPU-heavy or blocking work is offloaded only when needed, and completion returns to the loop.
 
-The GIS comparison is an architectural analogy, not a geographic data model. Cito resources remain opaque identifiers.
+The GIS comparison is an architectural analogy, not a geographic data model. CitoQ resources remain opaque identifiers.
 
 ## Non-negotiable principles
 
@@ -32,13 +32,13 @@ The GIS comparison is an architectural analogy, not a geographic data model. Cit
 16. Current-session/local verification comes first. GitHub Actions is used when independent network nodes, OS-specific behavior, or unavailable environments are required.
 17. Every development phase requires unit tests, cumulative regression tests, and a minimal smoke test before it is considered complete.
 18. The Host Coordinator is a control-plane aggregation/discovery component, not a mandatory data-plane broker.
-19. Discovery mechanisms are replaceable backends; Cito's stable model is the DemandKey and demand index, not SWIM/multicast/rendezvous themselves.
+19. Discovery mechanisms are replaceable backends; CitoQ's stable model is the DemandKey and demand index, not SWIM/multicast/rendezvous themselves.
 20. Structural latency invariants are regression-tested; production static messages must eventually use a direct generated codec rather than DynamicData on the hot path.
 
 ## Public API baseline
 
 ```cpp
-cito::Context ctx;
+citoq::Context ctx;
 ctx.on<Position>(handler);
 ctx.publish(Position{...});
 ctx.run();
@@ -47,7 +47,7 @@ ctx.run();
 Optional isolation:
 
 ```cpp
-cito::Context ctx("acme.robotics");
+citoq::Context ctx("acme.robotics");
 ```
 
 Optional opaque resource identifier:
@@ -57,7 +57,7 @@ ctx.on<Position>("drone_17", handler);
 ctx.publish("drone_17", Position{...});
 ```
 
-`Resource` is an opaque UTF-8 identifier in v1. Cito assigns no hierarchy or REST-style semantics to its contents.
+`Resource` is an opaque UTF-8 identifier in v1. CitoQ assigns no hierarchy or REST-style semantics to its contents.
 
 ## Runtime execution invariant
 

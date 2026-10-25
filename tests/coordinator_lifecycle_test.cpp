@@ -1,9 +1,9 @@
-#include <cito/coordinator_lifecycle.hpp>
+#include <citoq/coordinator_lifecycle.hpp>
 
 #include <cassert>
 
 int main() {
-    cito::CoordinatorLeaseTable leases;
+    citoq::CoordinatorLeaseTable leases;
 
     assert(
         leases.observe(
@@ -11,7 +11,7 @@ int main() {
             100,
             500,
             1000) ==
-        cito::CoordinatorLeaseObservation::Added);
+        citoq::CoordinatorLeaseObservation::Added);
 
     assert(leases.is_current(7, 100));
     assert(leases.size() == 1);
@@ -29,7 +29,7 @@ int main() {
                 100,
                 500,
                 now) ==
-            cito::CoordinatorLeaseObservation::Refreshed);
+            citoq::CoordinatorLeaseObservation::Refreshed);
 
         assert(
             leases.scheduled_expiry_count() ==
@@ -43,7 +43,7 @@ int main() {
             101,
             500,
             1600) ==
-        cito::CoordinatorLeaseObservation::Restarted);
+        citoq::CoordinatorLeaseObservation::Restarted);
     assert(leases.is_current(7, 101));
 
     // A delayed advertisement from the old process must not flip state back.
@@ -53,7 +53,7 @@ int main() {
             100,
             500,
             1650) ==
-        cito::CoordinatorLeaseObservation::Stale);
+        citoq::CoordinatorLeaseObservation::Stale);
     assert(leases.is_current(7, 101));
     assert(
         leases.scheduled_expiry_count() ==

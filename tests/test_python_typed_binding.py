@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import cito
+import citoq
 import position
 
 
@@ -27,9 +27,9 @@ def main() -> None:
             return b"counted"
 
     with (
-        cito.Context("acme") as subscriber,
-        cito.Context("acme") as publisher,
-        cito.Context("other") as isolated,
+        citoq.Context("acme") as subscriber,
+        citoq.Context("acme") as publisher,
+        citoq.Context("other") as isolated,
     ):
         # subscribe() is Context-owned: ignoring the returned handle must
         # keep demand and callback state alive.

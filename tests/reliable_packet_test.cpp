@@ -1,4 +1,4 @@
-#include <cito/detail/reliable_packet.hpp>
+#include <citoq/detail/reliable_packet.hpp>
 
 #include <array>
 #include <cassert>
@@ -8,9 +8,9 @@
 
 int main() {
     using namespace
-        cito::detail::reliable;
+        citoq::detail::reliable;
 
-    const cito::InterestKey key{
+    const citoq::InterestKey key{
         1,
         17,
         100};

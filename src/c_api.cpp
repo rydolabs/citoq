@@ -1,8 +1,8 @@
-#include <cito/cito_c.h>
+#include <citoq/citoq_c.h>
 
-#include <cito/detail/embedded_host_runtime.hpp>
-#include <cito/detail/raw_context.hpp>
-#include <cito/identity.hpp>
+#include <citoq/detail/embedded_host_runtime.hpp>
+#include <citoq/detail/raw_context.hpp>
+#include <citoq/identity.hpp>
 
 #include <memory>
 #include <new>
@@ -25,34 +25,34 @@ bool valid_bytes(
 }
 
 bool valid_request_status(
-    cito_request_status_t status) noexcept {
+    citoq_request_status_t status) noexcept {
     switch (status) {
-        case CITO_REQUEST_OK:
-        case CITO_REQUEST_CANCELLED:
-        case CITO_REQUEST_UNAVAILABLE:
-        case CITO_REQUEST_INVALID_ARGUMENT:
-        case CITO_REQUEST_DEADLINE_EXCEEDED:
-        case CITO_REQUEST_INTERNAL:
+        case CITOQ_REQUEST_OK:
+        case CITOQ_REQUEST_CANCELLED:
+        case CITOQ_REQUEST_UNAVAILABLE:
+        case CITOQ_REQUEST_INVALID_ARGUMENT:
+        case CITOQ_REQUEST_DEADLINE_EXCEEDED:
+        case CITOQ_REQUEST_INTERNAL:
             return true;
     }
 
     return false;
 }
 
-cito::detail::RequestStatus
+citoq::detail::RequestStatus
 to_request_status(
-    cito_request_status_t status) noexcept {
+    citoq_request_status_t status) noexcept {
     return static_cast<
-        cito::detail::RequestStatus>(
+        citoq::detail::RequestStatus>(
             static_cast<unsigned>(
                 status));
 }
 
-cito_request_status_t
+citoq_request_status_t
 from_request_status(
-    cito::detail::RequestStatus status) noexcept {
+    citoq::detail::RequestStatus status) noexcept {
     return static_cast<
-        cito_request_status_t>(
+        citoq_request_status_t>(
             static_cast<unsigned>(
                 status));
 }
@@ -87,10 +87,10 @@ struct ContextState {
         std::string scope)
         : scope_(std::move(scope)),
           scope_id_(
-              cito::stable_name_id(
+              citoq::stable_name_id(
                   scope_)),
           runtime_(
-              cito::detail::
+              citoq::detail::
                   acquire_embedded_host_runtime()),
           app_id_(
               runtime_->allocate_app_id()),
@@ -99,7 +99,7 @@ struct ContextState {
             runtime_->host().register_app(
                 app_id_,
                 [this](
-                    cito::TypeId type_id,
+                    citoq::TypeId type_id,
                     std::string_view resource,
                     std::span<
                         const std::uint8_t>
@@ -112,7 +112,7 @@ struct ContextState {
 
         if (!registered) {
             throw std::logic_error(
-                "Cito C ABI app registration failed");
+                "CitoQ C ABI app registration failed");
         }
     }
 
@@ -139,7 +139,7 @@ struct ContextState {
                 app_id_);
     }
 
-    bool advertise(cito::TypeId type_id, std::string_view resource) {
+    bool advertise(citoq::TypeId type_id, std::string_view resource) {
         const auto intent = key(type_id, resource);
         auto& network = request_network();
         if (published_keys_.contains(intent) ||
@@ -151,7 +151,7 @@ struct ContextState {
         return true;
     }
 
-    void subscription_closed(const cito::InterestKey& key) noexcept {
+    void subscription_closed(const citoq::InterestKey& key) noexcept {
         const auto it = subscribed_names_.find(key);
         if (it != subscribed_names_.end()) {
             host().unregister_resource_name(key);
@@ -160,72 +160,72 @@ struct ContextState {
         host().remove_interest(app_id_, key);
     }
 
-    cito::detail::HostRuntimeCore&
+    citoq::detail::HostRuntimeCore&
     host() noexcept {
         return runtime_->host();
     }
 
-    cito::detail::RequestReplyCore&
+    citoq::detail::RequestReplyCore&
     requests() noexcept {
         return runtime_->requests();
     }
 
-    cito::detail::RequestNetworkAdapter&
+    citoq::detail::RequestNetworkAdapter&
     request_network() noexcept {
         return runtime_->request_network();
     }
 
-    cito::InterestKey key(
-        cito::TypeId type_id,
+    citoq::InterestKey key(
+        citoq::TypeId type_id,
         std::string_view resource)
         const noexcept {
         return {
             scope_id_,
-            cito::stable_name_id(
+            citoq::stable_name_id(
                 resource),
             type_id};
     }
 
-    cito::detail::RequestKey
+    citoq::detail::RequestKey
     request_key(
-        cito::TypeId request_type_id,
+        citoq::TypeId request_type_id,
         std::string_view resource)
         const noexcept {
         return {
             scope_id_,
-            cito::stable_name_id(
+            citoq::stable_name_id(
                 resource),
             request_type_id};
     }
 
     std::string scope_;
-    cito::ScopeId scope_id_{};
+    citoq::ScopeId scope_id_{};
     std::shared_ptr<
-        cito::detail::EmbeddedHostRuntime>
+        citoq::detail::EmbeddedHostRuntime>
         runtime_;
-    cito::detail::AppId app_id_{};
-    cito::detail::RawContext local_;
-    std::unordered_map<cito::InterestKey, std::size_t, cito::InterestKeyHash>
+    citoq::detail::AppId app_id_{};
+    citoq::detail::RawContext local_;
+    std::unordered_map<citoq::InterestKey, std::size_t, citoq::InterestKeyHash>
         subscribed_names_;
-    std::unordered_set<cito::InterestKey, cito::InterestKeyHash>
+    std::unordered_set<citoq::InterestKey, citoq::InterestKeyHash>
         published_keys_;
 };
 
 struct RequestCallbackState {
     std::weak_ptr<ContextState>
         context;
-    cito_request_completion_callback_t
+    citoq_request_completion_callback_t
         callback{};
     void* user_data{};
-    cito::detail::RequestId id{};
+    citoq::detail::RequestId id{};
     bool remote{false};
     bool active{true};
 };
 
 } // namespace
 
-struct cito_context {
-    explicit cito_context(
+struct citoq_context {
+    explicit citoq_context(
         std::string scope)
         : state(
               std::make_shared<
@@ -236,16 +236,16 @@ struct cito_context {
         ContextState> state;
 };
 
-struct cito_subscription {
-    cito_subscription(
-        cito::detail::RawSubscription local,
+struct citoq_subscription {
+    citoq_subscription(
+        citoq::detail::RawSubscription local,
         std::weak_ptr<ContextState> state,
-        cito::InterestKey key)
+        citoq::InterestKey key)
         : local(std::move(local)),
           state(std::move(state)),
           key(key) {}
 
-    ~cito_subscription() {
+    ~citoq_subscription() {
         close();
     }
 
@@ -263,22 +263,22 @@ struct cito_subscription {
         }
     }
 
-    cito::detail::RawSubscription local;
+    citoq::detail::RawSubscription local;
     std::weak_ptr<ContextState> state;
-    cito::InterestKey key{};
+    citoq::InterestKey key{};
     bool active{true};
 };
 
-struct cito_handler {
-    cito_handler(
+struct citoq_handler {
+    citoq_handler(
         std::weak_ptr<ContextState> state,
-        cito::detail::HandlerToken token,
-        cito::InterestKey capability)
+        citoq::detail::HandlerToken token,
+        citoq::InterestKey capability)
         : state(std::move(state)),
           token(token),
           capability(capability) {}
 
-    ~cito_handler() {
+    ~citoq_handler() {
         close();
     }
 
@@ -302,18 +302,18 @@ struct cito_handler {
     }
 
     std::weak_ptr<ContextState> state;
-    cito::detail::HandlerToken token{};
-    cito::InterestKey capability{};
+    citoq::detail::HandlerToken token{};
+    citoq::InterestKey capability{};
     bool active{true};
 };
 
-struct cito_request {
-    explicit cito_request(
+struct citoq_request {
+    explicit citoq_request(
         std::shared_ptr<
             RequestCallbackState> state)
         : state(std::move(state)) {}
 
-    ~cito_request() {
+    ~citoq_request() {
         close();
     }
 
@@ -357,55 +357,55 @@ struct cito_request {
 
 extern "C" {
 
-uint32_t cito_abi_version(void) {
-    return CITO_C_ABI_VERSION;
+uint32_t citoq_abi_version(void) {
+    return CITOQ_C_ABI_VERSION;
 }
 
-cito_status_t cito_context_create(
+citoq_status_t citoq_context_create(
     const char* scope,
     size_t scope_size,
-    cito_context_t** out) {
+    citoq_context_t** out) {
     if (
         !out ||
         !valid_bytes(
             scope,
             scope_size)) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     *out = nullptr;
 
     try {
-        *out = new cito_context(
+        *out = new citoq_context(
             copy_text(
                 scope,
                 scope_size));
 
-        return CITO_STATUS_OK;
+        return CITOQ_STATUS_OK;
     } catch (
         const std::bad_alloc&) {
         return
-            CITO_STATUS_OUT_OF_MEMORY;
+            CITOQ_STATUS_OUT_OF_MEMORY;
     } catch (...) {
         return
-            CITO_STATUS_INTERNAL_ERROR;
+            CITOQ_STATUS_INTERNAL_ERROR;
     }
 }
 
-void cito_context_destroy(
-    cito_context_t* context) {
+void citoq_context_destroy(
+    citoq_context_t* context) {
     delete context;
 }
 
-cito_status_t cito_context_subscribe(
-    cito_context_t* context,
+citoq_status_t citoq_context_subscribe(
+    citoq_context_t* context,
     uint64_t type_id,
     const char* resource,
     size_t resource_size,
-    cito_message_callback_t callback,
+    citoq_message_callback_t callback,
     void* user_data,
-    cito_subscription_t** out) {
+    citoq_subscription_t** out) {
     if (
         !context ||
         !callback ||
@@ -414,7 +414,7 @@ cito_status_t cito_context_subscribe(
             resource,
             resource_size)) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     *out = nullptr;
@@ -457,17 +457,17 @@ cito_status_t cito_context_subscribe(
 
         if (!interest.changed) {
             return
-                CITO_STATUS_INTERNAL_ERROR;
+                CITOQ_STATUS_INTERNAL_ERROR;
         }
 
         bool named = false;
         try {
             if (!context->state->host().register_resource_name(key, text))
-                throw std::logic_error("Cito C resource hash collision");
+                throw std::logic_error("CitoQ C resource hash collision");
             named = true;
             ++context->state->subscribed_names_[key];
             *out =
-                new cito_subscription(
+                new citoq_subscription(
                     std::move(local),
                     context->state,
                     key);
@@ -478,30 +478,30 @@ cito_status_t cito_context_subscribe(
             throw;
         }
 
-        return CITO_STATUS_OK;
+        return CITOQ_STATUS_OK;
     } catch (
         const std::bad_alloc&) {
         return
-            CITO_STATUS_OUT_OF_MEMORY;
+            CITOQ_STATUS_OUT_OF_MEMORY;
     } catch (...) {
         return
-            CITO_STATUS_INTERNAL_ERROR;
+            CITOQ_STATUS_INTERNAL_ERROR;
     }
 }
 
-void cito_subscription_destroy(
-    cito_subscription_t* subscription) {
+void citoq_subscription_destroy(
+    citoq_subscription_t* subscription) {
     delete subscription;
 }
 
-cito_status_t cito_context_handle(
-    cito_context_t* context,
+citoq_status_t citoq_context_handle(
+    citoq_context_t* context,
     uint64_t request_type_id,
     const char* resource,
     size_t resource_size,
-    cito_request_handler_callback_t callback,
+    citoq_request_handler_callback_t callback,
     void* user_data,
-    cito_handler_t** out) {
+    citoq_handler_t** out) {
     if (
         !context ||
         !callback ||
@@ -510,7 +510,7 @@ cito_status_t cito_context_handle(
             resource,
             resource_size)) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     *out = nullptr;
@@ -530,7 +530,7 @@ cito_status_t cito_context_handle(
                 resource_text);
 
         const auto capability =
-            cito::detail::
+            citoq::detail::
                 request_handler_interest_key(
                     key);
 
@@ -545,13 +545,13 @@ cito_status_t cito_context_handle(
                      resource_text =
                          std::move(
                              resource_text)](
-                        cito::detail::RequestId
+                        citoq::detail::RequestId
                             request_id,
-                        cito::detail::AppId,
+                        citoq::detail::AppId,
                         std::span<
                             const std::uint8_t>
                             payload,
-                        cito::detail::
+                        citoq::detail::
                             RequestReplyCore::Reply) {
                         callback(
                             user_data,
@@ -572,7 +572,7 @@ cito_status_t cito_context_handle(
 
             if (!interest.changed) {
                 throw std::logic_error(
-                    "Cito request handler demand registration failed");
+                    "CitoQ request handler demand registration failed");
             }
         } catch (...) {
             state->requests()
@@ -582,7 +582,7 @@ cito_status_t cito_context_handle(
         }
 
         try {
-            *out = new cito_handler(
+            *out = new citoq_handler(
                 state,
                 token,
                 capability);
@@ -597,38 +597,38 @@ cito_status_t cito_context_handle(
             throw;
         }
 
-        return CITO_STATUS_OK;
+        return CITOQ_STATUS_OK;
     } catch (
         const std::bad_alloc&) {
         return
-            CITO_STATUS_OUT_OF_MEMORY;
+            CITOQ_STATUS_OUT_OF_MEMORY;
     } catch (...) {
         return
-            CITO_STATUS_INTERNAL_ERROR;
+            CITOQ_STATUS_INTERNAL_ERROR;
     }
 }
 
-void cito_handler_destroy(
-    cito_handler_t* handler) {
+void citoq_handler_destroy(
+    citoq_handler_t* handler) {
     delete handler;
 }
 
-cito_status_t cito_context_discover_handler(
-    cito_context_t* context, uint64_t request_type_id,
+citoq_status_t citoq_context_discover_handler(
+    citoq_context_t* context, uint64_t request_type_id,
     const char* resource, size_t resource_size) {
     if (!context || !valid_bytes(resource, resource_size))
-        return CITO_STATUS_INVALID_ARGUMENT;
+        return CITOQ_STATUS_INVALID_ARGUMENT;
     try {
         const auto view = resource_size == 0 ? std::string_view{} :
             std::string_view(resource, resource_size);
         context->state->request_network().discover_request_handler(
             context->state->request_key(request_type_id, view));
-        return CITO_STATUS_OK;
-    } catch (...) { return CITO_STATUS_INTERNAL_ERROR; }
+        return CITOQ_STATUS_OK;
+    } catch (...) { return CITOQ_STATUS_INTERNAL_ERROR; }
 }
 
-cito_status_t cito_context_has_handler(
-    cito_context_t* context,
+citoq_status_t citoq_context_has_handler(
+    citoq_context_t* context,
     uint64_t request_type_id,
     const char* resource,
     size_t resource_size,
@@ -640,7 +640,7 @@ cito_status_t cito_context_has_handler(
             resource,
             resource_size)) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     try {
@@ -669,23 +669,23 @@ cito_status_t cito_context_has_handler(
                 ? 1
                 : 0;
 
-        return CITO_STATUS_OK;
+        return CITOQ_STATUS_OK;
     } catch (...) {
         return
-            CITO_STATUS_INTERNAL_ERROR;
+            CITOQ_STATUS_INTERNAL_ERROR;
     }
 }
 
-cito_status_t cito_context_request(
-    cito_context_t* context,
+citoq_status_t citoq_context_request(
+    citoq_context_t* context,
     uint64_t request_type_id,
     const char* resource,
     size_t resource_size,
     const uint8_t* payload,
     size_t payload_size,
-    cito_request_completion_callback_t callback,
+    citoq_request_completion_callback_t callback,
     void* user_data,
-    cito_request_t** out) {
+    citoq_request_t** out) {
     if (
         !context ||
         !callback ||
@@ -697,7 +697,7 @@ cito_status_t cito_context_request(
             payload,
             payload_size)) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     *out = nullptr;
@@ -719,7 +719,7 @@ cito_status_t cito_context_request(
 
         auto request =
             std::make_unique<
-                cito_request>(
+                citoq_request>(
                 callback_state);
 
         const auto resource_view =
@@ -737,7 +737,7 @@ cito_status_t cito_context_request(
 
         auto completion =
             [callback_state](
-                cito::detail::
+                citoq::detail::
                     RequestStatus status,
                 std::span<
                     const std::uint8_t>
@@ -810,7 +810,7 @@ cito_status_t cito_context_request(
             }
         } else {
             completion(
-                cito::detail::
+                citoq::detail::
                     RequestStatus::
                         Unavailable,
                 {});
@@ -818,23 +818,23 @@ cito_status_t cito_context_request(
 
         *out = request.release();
 
-        return CITO_STATUS_OK;
+        return CITOQ_STATUS_OK;
     } catch (
         const std::bad_alloc&) {
         return
-            CITO_STATUS_OUT_OF_MEMORY;
+            CITOQ_STATUS_OUT_OF_MEMORY;
     } catch (...) {
         return
-            CITO_STATUS_INTERNAL_ERROR;
+            CITOQ_STATUS_INTERNAL_ERROR;
     }
 }
 
-cito_status_t cito_request_cancel(
-    cito_request_t* request,
+citoq_status_t citoq_request_cancel(
+    citoq_request_t* request,
     int* out_cancelled) {
     if (!request) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     const auto state =
@@ -866,18 +866,18 @@ cito_status_t cito_request_cancel(
             cancelled ? 1 : 0;
     }
 
-    return CITO_STATUS_OK;
+    return CITOQ_STATUS_OK;
 }
 
-void cito_request_destroy(
-    cito_request_t* request) {
+void citoq_request_destroy(
+    citoq_request_t* request) {
     delete request;
 }
 
-cito_status_t cito_context_reply(
-    cito_context_t* context,
+citoq_status_t citoq_context_reply(
+    citoq_context_t* context,
     uint64_t request_id,
-    cito_request_status_t status,
+    citoq_request_status_t status,
     const uint8_t* payload,
     size_t payload_size,
     int* out_accepted) {
@@ -890,7 +890,7 @@ cito_status_t cito_context_reply(
             payload,
             payload_size)) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     try {
@@ -910,15 +910,15 @@ cito_status_t cito_context_reply(
                 accepted ? 1 : 0;
         }
 
-        return CITO_STATUS_OK;
+        return CITOQ_STATUS_OK;
     } catch (...) {
         return
-            CITO_STATUS_INTERNAL_ERROR;
+            CITOQ_STATUS_INTERNAL_ERROR;
     }
 }
 
-cito_status_t cito_context_has_demand(
-    cito_context_t* context,
+citoq_status_t citoq_context_has_demand(
+    citoq_context_t* context,
     uint64_t type_id,
     const char* resource,
     size_t resource_size,
@@ -930,7 +930,7 @@ cito_status_t cito_context_has_demand(
             resource,
             resource_size)) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     try {
@@ -950,29 +950,29 @@ cito_status_t cito_context_has_demand(
                 ? 1
                 : 0;
 
-        return CITO_STATUS_OK;
+        return CITOQ_STATUS_OK;
     } catch (...) {
         return
-            CITO_STATUS_INTERNAL_ERROR;
+            CITOQ_STATUS_INTERNAL_ERROR;
     }
 }
 
-cito_status_t cito_context_advertise(
-    cito_context_t* context, uint64_t type_id,
+citoq_status_t citoq_context_advertise(
+    citoq_context_t* context, uint64_t type_id,
     const char* resource, size_t resource_size) {
     if (!context || !valid_bytes(resource, resource_size))
-        return CITO_STATUS_INVALID_ARGUMENT;
+        return CITOQ_STATUS_INVALID_ARGUMENT;
     try {
         const auto name = resource_size == 0 ? std::string_view{} :
             std::string_view(resource, resource_size);
         return context->state->advertise(type_id, name)
-            ? CITO_STATUS_OK : CITO_STATUS_INTERNAL_ERROR;
-    } catch (const std::bad_alloc&) { return CITO_STATUS_OUT_OF_MEMORY; }
-      catch (...) { return CITO_STATUS_INTERNAL_ERROR; }
+            ? CITOQ_STATUS_OK : CITOQ_STATUS_INTERNAL_ERROR;
+    } catch (const std::bad_alloc&) { return CITOQ_STATUS_OUT_OF_MEMORY; }
+      catch (...) { return CITOQ_STATUS_INTERNAL_ERROR; }
 }
 
-cito_status_t cito_context_publish(
-    cito_context_t* context,
+citoq_status_t citoq_context_publish(
+    citoq_context_t* context,
     uint64_t type_id,
     const char* resource,
     size_t resource_size,
@@ -988,7 +988,7 @@ cito_status_t cito_context_publish(
             payload,
             payload_size)) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     try {
@@ -1000,7 +1000,7 @@ cito_status_t cito_context_publish(
                     resource_size);
 
         if (!context->state->advertise(type_id, resource_view))
-            return CITO_STATUS_INTERNAL_ERROR;
+            return CITOQ_STATUS_INTERNAL_ERROR;
 
         const auto result =
             context->state->host().publish(
@@ -1008,7 +1008,7 @@ cito_status_t cito_context_publish(
                 resource_view,
                 payload_view(payload, payload_size),
                 [state = context->state](
-                    cito::DestinationId destination,
+                    citoq::DestinationId destination,
                     std::span<const std::uint8_t> packet) {
                     return state->request_network().send_data(destination, packet);
                 });
@@ -1018,40 +1018,40 @@ cito_status_t cito_context_publish(
                 result.delivered();
         }
 
-        return CITO_STATUS_OK;
+        return CITOQ_STATUS_OK;
     } catch (...) {
         return
-            CITO_STATUS_INTERNAL_ERROR;
+            CITOQ_STATUS_INTERNAL_ERROR;
     }
 }
 
-cito_status_t cito_context_run(
-    cito_context_t* context) {
+citoq_status_t citoq_context_run(
+    citoq_context_t* context) {
     if (!context) {
         return
-            CITO_STATUS_INVALID_ARGUMENT;
+            CITOQ_STATUS_INVALID_ARGUMENT;
     }
 
     try {
         context->state->runtime_->run();
-        return CITO_STATUS_OK;
-    } catch (...) { return CITO_STATUS_INTERNAL_ERROR; }
+        return CITOQ_STATUS_OK;
+    } catch (...) { return CITOQ_STATUS_INTERNAL_ERROR; }
 }
 
-void cito_context_stop(cito_context_t* context) {
+void citoq_context_stop(citoq_context_t* context) {
     if (context) context->state->runtime_->stop();
 }
 
-const char* cito_status_string(
-    cito_status_t status) {
+const char* citoq_status_string(
+    citoq_status_t status) {
     switch (status) {
-        case CITO_STATUS_OK:
+        case CITOQ_STATUS_OK:
             return "ok";
-        case CITO_STATUS_INVALID_ARGUMENT:
+        case CITOQ_STATUS_INVALID_ARGUMENT:
             return "invalid argument";
-        case CITO_STATUS_OUT_OF_MEMORY:
+        case CITOQ_STATUS_OUT_OF_MEMORY:
             return "out of memory";
-        case CITO_STATUS_INTERNAL_ERROR:
+        case CITOQ_STATUS_INTERNAL_ERROR:
             return "internal error";
     }
 

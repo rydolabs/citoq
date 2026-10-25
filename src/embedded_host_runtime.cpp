@@ -1,8 +1,8 @@
-#include <cito/detail/embedded_host_runtime.hpp>
+#include <citoq/detail/embedded_host_runtime.hpp>
 
 #include <mutex>
 
-namespace cito::detail {
+namespace citoq::detail {
 
 std::shared_ptr<EmbeddedHostRuntime>
 acquire_embedded_host_runtime() {
@@ -19,4 +19,4 @@ acquire_embedded_host_runtime() {
     return runtime;
 }
 
-} // namespace cito::detail
+} // namespace citoq::detail

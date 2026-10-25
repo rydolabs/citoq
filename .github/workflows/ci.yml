@@ -2,7 +2,7 @@ name: CitoQ source build and regression
 
 on:
   push:
-    branches: [main, "migration/**"]
+    branches: [main, "migration/**", "refactor/**"]
   pull_request:
 
 permissions:
@@ -16,25 +16,37 @@ jobs:
       - name: Dependencies
         run: sudo apt-get update && sudo apt-get install -y ninja-build
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCITO_ENABLE_MSQUIC=OFF -DBUILD_TESTING=ON
+        run: cmake -S . -B build -G Ninja -DCITOQ_ENABLE_MSQUIC=OFF -DBUILD_TESTING=ON
       - name: Build
         run: cmake --build build --parallel 2
-      - name: Test
+      - name: Full CTest regression
         run: ctest --test-dir build --output-on-failure --parallel 2
       - name: Install
         run: cmake --install build --prefix "$GITHUB_WORKSPACE/stage"
-      - name: Out-of-tree C++ consumer
+      - name: Installed C and C++ consumer smoke
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p /tmp/citoq-consumer
           cat > /tmp/citoq-consumer/CMakeLists.txt <<'EOF'
           cmake_minimum_required(VERSION 3.20)
-          project(CitoQConsumer LANGUAGES CXX)
+          project(CitoQConsumer LANGUAGES C CXX)
           find_package(CitoQ CONFIG REQUIRED)
-          add_executable(consumer main.cpp)
-          target_link_libraries(consumer PRIVATE CitoQ::Core)
+          add_executable(consumer_cpp main.cpp)
+          target_link_libraries(consumer_cpp PRIVATE CitoQ::Core)
+          add_executable(consumer_c main.c)
+          target_link_libraries(consumer_c PRIVATE CitoQ::C)
           EOF
           printf '#include <citoq/citoq.hpp>\nint main() { citoq::Context ctx; return 0; }\n' > /tmp/citoq-consumer/main.cpp
+          printf '#include <citoq/citoq_c.h>\nint main(void) { return citoq_abi_version() == CITOQ_C_ABI_VERSION ? 0 : 1; }\n' > /tmp/citoq-consumer/main.c
           cmake -S /tmp/citoq-consumer -B /tmp/citoq-consumer/build -G Ninja -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/stage"
           cmake --build /tmp/citoq-consumer/build
-          /tmp/citoq-consumer/build/consumer
+          /tmp/citoq-consumer/build/consumer_cpp
+          /tmp/citoq-consumer/build/consumer_c
+      - name: Installed Python binding and IDL generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$GITHUB_WORKSPACE/python" CITOQ_LIBRARY="$GITHUB_WORKSPACE/stage/lib/libcitoq.so" python3 -c 'import citoq; assert citoq.abi_version() == 1'
+          "$GITHUB_WORKSPACE/stage/bin/citoq-idlc" tests/idl/position.idl -o /tmp/citoq-position.hpp
+          grep -q 'namespace citoq' /tmp/citoq-position.hpp

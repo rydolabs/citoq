@@ -1,18 +1,18 @@
-#include <cito/discovery.hpp>
+#include <citoq/discovery.hpp>
 
 #include <cassert>
 #include <cstdint>
 
 int main() {
-    cito::InterestAdvertisement add;
-    add.op = cito::InterestOp::Add;
+    citoq::InterestAdvertisement add;
+    add.op = citoq::InterestOp::Add;
     add.data_port = 48001;
     add.lease_ms = 500;
     add.destination = 7;
     add.key = {1, 2, 3};
 
-    const auto bytes = cito::encode_interest(add);
-    const auto decoded = cito::decode_interest(bytes);
+    const auto bytes = citoq::encode_interest(add);
+    const auto decoded = citoq::decode_interest(bytes);
 
     assert(decoded.op == add.op);
     assert(decoded.data_port == add.data_port);
@@ -20,8 +20,8 @@ int main() {
     assert(decoded.destination == add.destination);
     assert(decoded.key == add.key);
 
-    cito::InterestIndex index;
-    cito::InterestLeaseTable leases(index);
+    citoq::InterestIndex index;
+    citoq::InterestLeaseTable leases(index);
 
     assert(leases.observe(add, 1000));
     assert(index.lookup(add.key).contains(7));
@@ -41,7 +41,7 @@ int main() {
 
     leases.observe(add, 2000);
     auto remove = add;
-    remove.op = cito::InterestOp::Remove;
+    remove.op = citoq::InterestOp::Remove;
     remove.lease_ms = 0;
     assert(leases.observe(remove, 2100));
     assert(index.lookup(add.key).empty());
@@ -51,7 +51,7 @@ int main() {
     truncated.pop_back();
     bool failed = false;
     try {
-        (void)cito::decode_interest(truncated);
+        (void)citoq::decode_interest(truncated);
     } catch (const std::runtime_error&) {
         failed = true;
     }

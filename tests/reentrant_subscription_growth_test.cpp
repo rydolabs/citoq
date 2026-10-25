@@ -1,6 +1,6 @@
-#include <cito/cito.hpp>
-#include <cito/cito_c.h>
-#include <cito/detail/raw_context.hpp>
+#include <citoq/citoq.hpp>
+#include <citoq/citoq_c.h>
+#include <citoq/detail/raw_context.hpp>
 
 #include <cassert>
 #include <cstdint>
@@ -12,8 +12,8 @@ int main() {
     // The executing callback used to live inside a vector element that was
     // freed by vector growth. In ASan builds this was a heap-use-after-free.
     {
-        cito::detail::RawContext ctx("reentrant");
-        std::vector<cito::detail::RawSubscription> subscriptions;
+        citoq::detail::RawContext ctx("reentrant");
+        std::vector<citoq::detail::RawSubscription> subscriptions;
         std::size_t callbacks = 0;
         auto root = ctx.on(42, "updates",
             [&](std::uint64_t, std::string_view, std::span<const std::uint8_t>) {
@@ -33,7 +33,7 @@ int main() {
         assert(callbacks == 258);
     }
     {
-        cito::Context ctx("reentrant");
+        citoq::Context ctx("reentrant");
         std::size_t callbacks = 0;
         auto root = ctx.subscribe<int>("updates", [&](const int&) {
             if (callbacks == 0) {

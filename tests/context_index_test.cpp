@@ -1,4 +1,4 @@
-#include <cito/cito.hpp>
+#include <citoq/citoq.hpp>
 
 #include <cassert>
 #include <memory>
@@ -14,10 +14,10 @@ struct Battery {
 };
 
 int main() {
-    cito::Context ctx;
+    citoq::Context ctx;
 
     int calls = 0;
-    std::vector<cito::Subscription> unrelated;
+    std::vector<citoq::Subscription> unrelated;
     unrelated.reserve(2000);
 
     for (int i = 0; i < 1000; ++i) {
@@ -54,7 +54,7 @@ int main() {
     // Closing a later subscriber from inside a callback must
     // safely suppress it during the same dispatch.
     int second_calls = 0;
-    cito::Subscription second;
+    citoq::Subscription second;
 
     auto first =
         ctx.on<Position>(
@@ -79,7 +79,7 @@ int main() {
     // A subscription added during dispatch starts with the next
     // publish, not halfway through the current sample.
     int late_calls = 0;
-    cito::Subscription late;
+    citoq::Subscription late;
     bool added = false;
 
     auto adder =
@@ -111,11 +111,11 @@ int main() {
 
     // A Subscription may outlive its Context without touching
     // destroyed Context storage.
-    cito::Subscription survivor;
+    citoq::Subscription survivor;
 
     {
         auto temporary =
-            std::make_unique<cito::Context>();
+            std::make_unique<citoq::Context>();
 
         survivor =
             temporary->on<Position>(

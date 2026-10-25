@@ -1,4 +1,4 @@
-#include <cito/detail/linux_request_runtime_driver.hpp>
+#include <citoq/detail/linux_request_runtime_driver.hpp>
 
 #include <cerrno>
 #include <chrono>
@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <utility>
 
-namespace cito::detail {
+namespace citoq::detail {
 
 namespace {
 
@@ -96,7 +96,7 @@ LinuxRequestRuntimeDriver(
         options_.coordinator == 0 ||
         options_.incarnation == 0) {
         throw std::invalid_argument(
-            "Cito Linux request runtime requires coordinator/incarnation");
+            "CitoQ Linux request runtime requires coordinator/incarnation");
     }
 
     int wake_fds[2]{
@@ -117,7 +117,7 @@ LinuxRequestRuntimeDriver(
         }
 
         throw std::runtime_error(
-            "Cito Linux request runtime wake pipe failed");
+            "CitoQ Linux request runtime wake pipe failed");
     }
 
     wake_read_ =
@@ -128,7 +128,7 @@ LinuxRequestRuntimeDriver(
     if (!control_.bind(
             options_.control_port)) {
         throw std::runtime_error(
-            "Cito Linux request runtime control bind failed");
+            "CitoQ Linux request runtime control bind failed");
     }
 
     control_.set_announcement_policy(
@@ -145,7 +145,7 @@ LinuxRequestRuntimeDriver(
         options_.destination != 0 &&
         options_.quic_port != 0) {
         const std::array<
-            cito::RouteEndpoint,
+            citoq::RouteEndpoint,
             1> endpoints{{
                 {
                     options_.destination,
@@ -165,7 +165,7 @@ LinuxRequestRuntimeDriver(
                 options_.certificate_file,
                 options_.private_key_file)) {
             throw std::runtime_error(
-                "Cito Linux request runtime QUIC listener failed");
+                "CitoQ Linux request runtime QUIC listener failed");
         }
     }
 
@@ -220,7 +220,7 @@ LinuxRequestRuntimeDriver::run() {
             true,
             std::memory_order_acq_rel)) {
         throw std::logic_error(
-            "Cito runtime loop is already running");
+            "CitoQ runtime loop is already running");
     }
 
     stop_requested_.store(
@@ -420,7 +420,7 @@ wait_for_event() {
 
         if (errno != EINTR) {
             throw std::runtime_error(
-                "Cito Linux request runtime poll failed");
+                "CitoQ Linux request runtime poll failed");
         }
 
         if (stop_requested_.load(
@@ -501,10 +501,10 @@ install_linux_request_runtime(
     if (!runtime.install_driver(
             driver)) {
         throw std::logic_error(
-            "Cito runtime already has a driver");
+            "CitoQ runtime already has a driver");
     }
 
     return driver;
 }
 
-} // namespace cito::detail
+} // namespace citoq::detail

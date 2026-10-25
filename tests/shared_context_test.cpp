@@ -1,4 +1,4 @@
-#include <cito/cito.hpp>
+#include <citoq/citoq.hpp>
 
 #include <cassert>
 #include <cstdint>
@@ -10,7 +10,7 @@ struct WireValue {
     std::uint32_t value{};
 };
 
-namespace cito {
+namespace citoq {
 
 template <>
 struct StaticType<WireValue> {
@@ -49,17 +49,17 @@ struct StaticCodec<WireValue> {
     }
 };
 
-} // namespace cito
+} // namespace citoq
 
 int main() {
-    using Codec = cito::StaticCodec<WireValue>;
+    using Codec = citoq::StaticCodec<WireValue>;
 
     Codec::encodes = 0;
     Codec::decodes = 0;
 
     // Same Context remains object-native: no serialization for self demand.
     {
-        cito::Context local("acme");
+        citoq::Context local("acme");
         int calls = 0;
         auto sub = local.subscribe<WireValue>(
             "drone_17",
@@ -79,9 +79,9 @@ int main() {
 
     // Separate C++ Contexts share exact scope/resource/type demand.
     {
-        cito::Context publisher("acme");
-        cito::Context subscriber("acme");
-        cito::Context isolated("other");
+        citoq::Context publisher("acme");
+        citoq::Context subscriber("acme");
+        citoq::Context isolated("other");
 
         int calls = 0;
         auto sub = subscriber.subscribe<WireValue>(
@@ -109,8 +109,8 @@ int main() {
 
     // A publishing app that also subscribes must not receive twice.
     {
-        cito::Context publisher("acme");
-        cito::Context peer("acme");
+        citoq::Context publisher("acme");
+        citoq::Context peer("acme");
 
         int own_calls = 0;
         int peer_calls = 0;

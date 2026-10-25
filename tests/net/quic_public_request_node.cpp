@@ -1,6 +1,6 @@
-#include <cito/cito.hpp>
-#include <cito/cito_c.h>
-#include <cito/detail/linux_request_runtime_driver.hpp>
+#include <citoq/citoq.hpp>
+#include <citoq/citoq_c.h>
+#include <citoq/detail/linux_request_runtime_driver.hpp>
 
 #include <array>
 #include <atomic>
@@ -25,7 +25,7 @@ struct NetPong {
     std::uint32_t value{};
 };
 
-namespace cito {
+namespace citoq {
 
 template <>
 struct StaticType<NetPing> {
@@ -139,7 +139,7 @@ struct StaticCodec<NetPong> {
     }
 };
 
-} // namespace cito
+} // namespace citoq
 
 namespace {
 
@@ -201,12 +201,12 @@ struct Detached {
 };
 
 Detached await_and_stop(
-    cito::Context& ctx,
-    cito::Request<NetPong> request,
+    citoq::Context& ctx,
+    citoq::Request<NetPong> request,
     bool& done,
     bool& ok,
     std::uint32_t& value,
-    cito::RequestStatus& status) {
+    citoq::RequestStatus& status) {
     auto result =
         co_await request;
 
@@ -251,12 +251,12 @@ void c_typed_callback(void* opaque, std::uint64_t,
 }
 
 int data_count() {
-    const char* value = std::getenv("CITO_PUBSUB_COUNT");
+    const char* value = std::getenv("CITOQ_PUBSUB_COUNT");
     if (!value) return 10;
     char* end = nullptr;
     const long parsed = std::strtol(value, &end, 10);
     if (end == value || *end || parsed < 1 || parsed > 1000)
-        throw std::invalid_argument("CITO_PUBSUB_COUNT must be 1..1000");
+        throw std::invalid_argument("CITOQ_PUBSUB_COUNT must be 1..1000");
     return static_cast<int>(parsed);
 }
 
@@ -269,7 +269,7 @@ int run_server(
     const std::string& cert,
     const std::string& key,
     const char* client_ca_file) {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     auto runtime =
         acquire_embedded_host_runtime();
@@ -298,7 +298,7 @@ int run_server(
     options.private_key_file =
         key;
     options.quic.registration_name =
-        "cito-public-server";
+        "citoq-public-server";
     if (client_ca_file) {
         options.quic.require_client_certificate = true;
         options.quic.trusted_client_ca_file = client_ca_file;
@@ -309,7 +309,7 @@ int run_server(
             *runtime,
             std::move(options));
 
-    cito::Context provider(
+    citoq::Context provider(
         "acme");
 
     std::atomic<int>
@@ -326,23 +326,23 @@ int run_server(
                 ping.value + 1};
         });
 
-    const bool pubsub_mode = std::getenv("CITO_PUBSUB_SMOKE") != nullptr;
+    const bool pubsub_mode = std::getenv("CITOQ_PUBSUB_SMOKE") != nullptr;
     const int expected_data = pubsub_mode ? data_count() : 0;
-    const bool c_api_mode = std::getenv("CITO_C_API_DATA") != nullptr;
+    const bool c_api_mode = std::getenv("CITOQ_C_API_DATA") != nullptr;
     std::atomic<int> data_seen{0};
     std::atomic<int> data_rejected{0};
     std::vector<std::uint8_t> seen_sequences(static_cast<std::size_t>(expected_data)+1);
-    cito::Subscription data_subscription;
-    cito_context_t* c_subscriber = nullptr;
-    cito_subscription_t* c_subscription = nullptr;
+    citoq::Subscription data_subscription;
+    citoq_context_t* c_subscriber = nullptr;
+    citoq_subscription_t* c_subscription = nullptr;
     CDataCheck c_check{&data_seen, &data_rejected, &seen_sequences, expected_data};
     if (pubsub_mode && c_api_mode) {
-        if (cito_context_create("acme", 4, &c_subscriber) != CITO_STATUS_OK)
+        if (citoq_context_create("acme", 4, &c_subscriber) != CITOQ_STATUS_OK)
             return 11;
-        if (cito_context_subscribe(c_subscriber,
-            cito::static_type_ref<NetPing>().type_id(),
+        if (citoq_context_subscribe(c_subscriber,
+            citoq::static_type_ref<NetPing>().type_id(),
             "robot_1", 7, c_typed_callback, &c_check,
-            &c_subscription) != CITO_STATUS_OK) return 12;
+            &c_subscription) != CITOQ_STATUS_OK) return 12;
     } else if (pubsub_mode) {
         data_subscription = provider.on<NetPing>(
             "robot_1", [&](const NetPing& ping) {
@@ -416,8 +416,8 @@ int run_server(
             2 &&
         stats.datagrams_sent >= 2;
 
-    if (c_subscription) cito_subscription_destroy(c_subscription);
-    if (c_subscriber) cito_context_destroy(c_subscriber);
+    if (c_subscription) citoq_subscription_destroy(c_subscription);
+    if (c_subscriber) citoq_context_destroy(c_subscriber);
     (void)runtime->clear_driver(
         driver.get());
     driver.reset();
@@ -440,7 +440,7 @@ int run_client(
     const char* ca_file,
     const char* client_cert,
     const char* client_key) {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     auto runtime =
         acquire_embedded_host_runtime();
@@ -453,7 +453,7 @@ int run_client(
     options.control_port =
         control_port;
     options.quic.registration_name =
-        "cito-public-client";
+        "citoq-public-client";
     options.quic.ca_certificate_file = ca_file;
     if (client_cert && client_key) {
         options.quic.client_certificate_file = client_cert;
@@ -465,23 +465,23 @@ int run_client(
             *runtime,
             std::move(options));
 
-    cito::Context requester(
+    citoq::Context requester(
         "acme");
 
-    cito::StaticCodec<
+    citoq::StaticCodec<
         NetPing>::encodes = 0;
 
     auto request =
         requester.request(
             "robot_1",
             NetPing{41},
-            cito::RequestOptions{
+            citoq::RequestOptions{
                 std::chrono::
                     seconds(5)});
 
     if (
         request.ready() ||
-        cito::StaticCodec<
+        citoq::StaticCodec<
             NetPing>::encodes != 0 ||
         runtime->request_network()
             .waiting_count() != 1) {
@@ -492,7 +492,7 @@ int run_client(
     bool ok = false;
     std::uint32_t value = 0;
     auto status =
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Internal;
 
     await_and_stop(
@@ -509,9 +509,9 @@ int run_client(
         !done ||
         !ok ||
         status !=
-            cito::RequestStatus::Ok ||
+            citoq::RequestStatus::Ok ||
         value != 42 ||
-        cito::StaticCodec<
+        citoq::StaticCodec<
             NetPing>::encodes != 1 ||
         driver->session_count() !=
             1) {
@@ -519,20 +519,20 @@ int run_client(
     }
 
     const auto before_timeout =
-        cito::StaticCodec<
+        citoq::StaticCodec<
             NetPing>::encodes;
 
     auto timed_out =
         requester.request(
             "missing",
             NetPing{9},
-            cito::RequestOptions{
+            citoq::RequestOptions{
                 std::chrono::
                     milliseconds(20)});
 
     if (
         timed_out.ready() ||
-        cito::StaticCodec<
+        citoq::StaticCodec<
             NetPing>::encodes !=
         before_timeout) {
         return 22;
@@ -543,7 +543,7 @@ int run_client(
     std::uint32_t timeout_value =
         0;
     auto timeout_status =
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Internal;
 
     await_and_stop(
@@ -563,9 +563,9 @@ int run_client(
         timeout_done &&
         !timeout_ok &&
         timeout_status ==
-            cito::RequestStatus::
+            citoq::RequestStatus::
                 DeadlineExceeded &&
-        cito::StaticCodec<
+        citoq::StaticCodec<
             NetPing>::encodes ==
             before_timeout &&
         stats.datagrams_received >=
@@ -579,22 +579,22 @@ int run_client(
         runtime->requests()
             .pending_count() == 0;
 
-    const bool pubsub_mode = std::getenv("CITO_PUBSUB_SMOKE") != nullptr;
+    const bool pubsub_mode = std::getenv("CITOQ_PUBSUB_SMOKE") != nullptr;
     const int expected_data = pubsub_mode ? data_count() : 0;
-    const bool c_api_mode = std::getenv("CITO_C_API_DATA") != nullptr;
+    const bool c_api_mode = std::getenv("CITOQ_C_API_DATA") != nullptr;
     bool pubsub_ok = true;
     if (pubsub_mode) {
-        const cito::InterestKey data_key{
-            cito::stable_name_id("acme"),
-            cito::stable_name_id("robot_1"),
-            cito::static_type_ref<NetPing>().type_id()};
-        cito_context_t* c_publisher = nullptr;
+        const citoq::InterestKey data_key{
+            citoq::stable_name_id("acme"),
+            citoq::stable_name_id("robot_1"),
+            citoq::static_type_ref<NetPing>().type_id()};
+        citoq_context_t* c_publisher = nullptr;
         if (c_api_mode) {
-            if (cito_context_create("acme", 4, &c_publisher) != CITO_STATUS_OK)
+            if (citoq_context_create("acme", 4, &c_publisher) != CITOQ_STATUS_OK)
                 return 25;
-            if (cito_context_advertise(c_publisher,
-                    cito::static_type_ref<NetPing>().type_id(),
-                    "robot_1", 7) != CITO_STATUS_OK)
+            if (citoq_context_advertise(c_publisher,
+                    citoq::static_type_ref<NetPing>().type_id(),
+                    "robot_1", 7) != CITOQ_STATUS_OK)
                 return 26;
         } else {
             requester.advertise<NetPing>("robot_1");
@@ -618,10 +618,10 @@ int run_client(
                         static_cast<std::uint8_t>((i >> 16) & 255),
                         static_cast<std::uint8_t>((i >> 24) & 255)};
                     std::size_t sent = 0;
-                    if (cito_context_publish(c_publisher,
-                            cito::static_type_ref<NetPing>().type_id(),
+                    if (citoq_context_publish(c_publisher,
+                            citoq::static_type_ref<NetPing>().type_id(),
                             "robot_1", 7, payload.data(), payload.size(),
-                            &sent) != CITO_STATUS_OK || sent < 1)
+                            &sent) != CITOQ_STATUS_OK || sent < 1)
                         pubsub_ok = false;
                 } else if (requester.publish("robot_1", NetPing{
                         static_cast<std::uint32_t>(i)}) < 1) {
@@ -642,7 +642,7 @@ int run_client(
                       << " session_count=" << driver->session_count()
                       << " send/route failed" << std::endl;
         // Advertised intent is owned by the public Context.
-        if (c_publisher) cito_context_destroy(c_publisher);
+        if (c_publisher) citoq_context_destroy(c_publisher);
     }
 
     (void)runtime->clear_driver(
@@ -668,7 +668,7 @@ int main(
     int argc,
     char** argv) {
     if (argc == 2 && std::strcmp(argv[1], "type-id") == 0) {
-        std::cout << cito::static_type_ref<NetPing>().type_id() << std::endl;
+        std::cout << citoq::static_type_ref<NetPing>().type_id() << std::endl;
         return 0;
     }
     if (

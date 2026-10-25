@@ -1,4 +1,4 @@
-#include <cito/cito.hpp>
+#include <citoq/citoq.hpp>
 
 #include <cassert>
 #include <string>
@@ -9,7 +9,7 @@ struct Position {
 };
 
 int main() {
-    cito::Context ctx("smoke");
+    citoq::Context ctx("smoke");
 
     int calls = 0;
 

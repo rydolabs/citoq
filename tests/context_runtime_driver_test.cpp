@@ -1,5 +1,5 @@
-#include <cito/cito.hpp>
-#include <cito/detail/embedded_host_runtime.hpp>
+#include <citoq/citoq.hpp>
+#include <citoq/detail/embedded_host_runtime.hpp>
 
 #include <cassert>
 #include <memory>
@@ -7,7 +7,7 @@
 namespace {
 
 class FakeDriver final
-    : public cito::detail::RuntimeDriver {
+    : public citoq::detail::RuntimeDriver {
 public:
     void run() override {
         ++runs;
@@ -25,10 +25,10 @@ public:
 
 int main() {
     auto runtime =
-        cito::detail::
+        citoq::detail::
             acquire_embedded_host_runtime();
 
-    cito::Context ctx(
+    citoq::Context ctx(
         "driver-test");
 
     // No installed distributed driver keeps the existing local no-op run.

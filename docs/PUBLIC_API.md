@@ -1,13 +1,13 @@
-# Cito public API direction
+# CitoQ public API direction
 
-Cito's public API expresses **user intent**, not transport machinery.
+CitoQ's public API expresses **user intent**, not transport machinery.
 
 ## Stable mental model
 
 Data distribution uses **Publish/Subscribe**:
 
 ```cpp
-cito::Context ctx("acme");
+citoq::Context ctx("acme");
 
 auto sub = ctx.subscribe<Position>(
     "drone_17",
@@ -93,7 +93,7 @@ auto result =
     co_await ctx.request(
         "drone_17",
         GetStatus{...},
-        cito::RequestOptions{
+        citoq::RequestOptions{
             .timeout = 250ms
         });
 ```
@@ -182,7 +182,7 @@ ctx.request(GetStatus)
 
 The request deadline covers both readiness waiting and the remote reply wait.
 If it expires before readiness, the encoder is never called. If it expires
-after send, the local result becomes `DeadlineExceeded` and Cito emits a
+after send, the local result becomes `DeadlineExceeded` and CitoQ emits a
 best-effort CTX1 Cancel so late replies cannot revive the request.
 
 Embedders that do not install a network-session manager retain the previous

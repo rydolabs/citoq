@@ -1,4 +1,4 @@
-#include <cito/detail/udp_runtime_adapter.hpp>
+#include <citoq/detail/udp_runtime_adapter.hpp>
 
 #include <arpa/inet.h>
 #include <poll.h>
@@ -61,7 +61,7 @@ bool bind_udp(
         sizeof(address)) == 0;
 }
 
-cito::detail::UdpEndpoint
+citoq::detail::UdpEndpoint
 to_endpoint(
     const sockaddr_in& address) {
     return {
@@ -72,7 +72,7 @@ to_endpoint(
 }
 
 sockaddr_in to_sockaddr(
-    const cito::detail::UdpEndpoint&
+    const citoq::detail::UdpEndpoint&
         endpoint) {
     sockaddr_in address{};
     address.sin_family = AF_INET;
@@ -83,7 +83,7 @@ sockaddr_in to_sockaddr(
     return address;
 }
 
-cito::detail::UdpEndpoint
+citoq::detail::UdpEndpoint
 parse_endpoint(
     const std::string& ip,
     std::uint16_t port) {
@@ -104,7 +104,7 @@ parse_endpoint(
 
 bool send_span(
     int fd,
-    const cito::detail::UdpEndpoint&
+    const citoq::detail::UdpEndpoint&
         endpoint,
     std::span<const std::uint8_t> bytes) {
     const auto address =
@@ -124,7 +124,7 @@ bool send_span(
 
 bool send_owned(
     int fd,
-    const cito::detail::UdpSend& send) {
+    const citoq::detail::UdpSend& send) {
     return send_span(
         fd,
         send.endpoint,
@@ -168,7 +168,7 @@ receive_bytes(
 bool send_actions(
     int fd,
     const std::vector<
-        cito::detail::UdpSend>& sends) {
+        citoq::detail::UdpSend>& sends) {
     for (const auto& send :
          sends) {
         if (!send_owned(
@@ -228,14 +228,14 @@ int subscriber(
             ? std::stoull(argv[9])
             : 3200ull;
 
-    const cito::InterestKey key{
+    const citoq::InterestKey key{
         7,
         17,
         type};
 
     std::size_t delivered = 0;
 
-    cito::detail::HostRuntimeCore host;
+    citoq::detail::HostRuntimeCore host;
     host.register_app(
         node,
         [&](auto received_type,
@@ -261,14 +261,14 @@ int subscriber(
         node,
         key);
 
-    cito::detail::UdpRuntimeAdapter
+    citoq::detail::UdpRuntimeAdapter
         udp(
             host,
             node,
             node * 1000 + 1);
 
     const std::array<
-        cito::RouteEndpoint,
+        citoq::RouteEndpoint,
         1> routes{{
             {node, data_port}}};
 
@@ -496,13 +496,13 @@ int publisher(
     const auto listen_ms =
         std::stoull(argv[5]);
 
-    const cito::InterestKey key{
+    const citoq::InterestKey key{
         7,
         17,
         type};
 
-    cito::detail::HostRuntimeCore host;
-    cito::detail::UdpRuntimeAdapter
+    citoq::detail::HostRuntimeCore host;
+    citoq::detail::UdpRuntimeAdapter
         udp(
             host,
             100,
@@ -686,13 +686,13 @@ int publisher_expiry(
     const auto listen_ms =
         std::stoull(argv[4]);
 
-    const cito::InterestKey key{
+    const citoq::InterestKey key{
         7,
         17,
         type};
 
-    cito::detail::HostRuntimeCore host;
-    cito::detail::UdpRuntimeAdapter
+    citoq::detail::HostRuntimeCore host;
+    citoq::detail::UdpRuntimeAdapter
         udp(
             host,
             101,
@@ -723,7 +723,7 @@ int publisher_expiry(
         Clock::now();
 
     bool discovered = false;
-    cito::DestinationId discovered_id = 0;
+    citoq::DestinationId discovered_id = 0;
 
     while (
         Clock::now() - start <

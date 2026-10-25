@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BIN="$1"
-NAME="/cito-shm-smoke-$$"
+NAME="/citoq-shm-smoke-$$"
 COUNT=100
 
 cleanup() {

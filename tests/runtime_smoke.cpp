@@ -1,9 +1,9 @@
-#include <cito/detail/runtime.hpp>
+#include <citoq/detail/runtime.hpp>
 #include <cassert>
 #include <thread>
 
 int main() {
-    cito::detail::Runtime runtime(2, 32, 8);
+    citoq::detail::Runtime runtime(2, 32, 8);
     std::thread::id event_thread;
     std::thread::id work_thread;
     int decoded = 0;

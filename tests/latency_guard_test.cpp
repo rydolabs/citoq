@@ -1,16 +1,16 @@
-#include <cito/data_packet.hpp>
-#include <cito/detail/demand_router.hpp>
-#include <cito/discovery.hpp>
+#include <citoq/data_packet.hpp>
+#include <citoq/detail/demand_router.hpp>
+#include <citoq/discovery.hpp>
 
 #include <cassert>
 #include <cstdint>
 #include <vector>
 
 int main() {
-    const cito::InterestKey key{1, 2, 3};
+    const citoq::InterestKey key{1, 2, 3};
 
     // Duplicate local subscribers must not churn the outward host summary.
-    cito::HostInterests host;
+    citoq::HostInterests host;
     assert(host.add(key));
     const auto first_version = host.version();
 
@@ -28,10 +28,10 @@ int main() {
     assert(host.version() == first_version + 1);
 
     // Lease refresh must stay bounded: one live lease, one scheduled expiry.
-    cito::InterestIndex index;
-    cito::InterestLeaseTable leases(index);
-    const cito::InterestAdvertisement advertisement{
-        cito::InterestOp::Add,
+    citoq::InterestIndex index;
+    citoq::InterestLeaseTable leases(index);
+    const citoq::InterestAdvertisement advertisement{
+        citoq::InterestOp::Add,
         48000,
         100,
         7,
@@ -48,7 +48,7 @@ int main() {
     assert(leases.expire(10'100) == 1);
 
     // No demand means no encode/send. Fan-out encodes once.
-    cito::detail::DemandRouter router(index);
+    citoq::detail::DemandRouter router(index);
     int encode_calls = 0;
     int send_calls = 0;
 
@@ -56,7 +56,7 @@ int main() {
         ++encode_calls;
         return std::vector<std::uint8_t>{1, 2, 3};
     };
-    auto send = [&](cito::DestinationId, const auto&) {
+    auto send = [&](citoq::DestinationId, const auto&) {
         ++send_calls;
     };
 
@@ -71,11 +71,11 @@ int main() {
     assert(send_calls == 2);
 
     // Packet view must alias the received buffer instead of copying payload.
-    const cito::DataPacket packet{
+    const citoq::DataPacket packet{
         key,
         {9, 8, 7, 6}};
-    const auto bytes = cito::encode_data_packet(packet);
-    const auto view = cito::decode_data_packet_view(bytes);
+    const auto bytes = citoq::encode_data_packet(packet);
+    const auto view = citoq::decode_data_packet_view(bytes);
 
     assert(view.key == key);
     assert(view.payload.size() == 4);

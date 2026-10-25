@@ -1,9 +1,9 @@
-#include <cito/coordinator_lifecycle.hpp>
-#include <cito/data_packet.hpp>
-#include <cito/demand_control.hpp>
-#include <cito/demand_summary.hpp>
-#include <cito/interest.hpp>
-#include <cito/remote_routes.hpp>
+#include <citoq/coordinator_lifecycle.hpp>
+#include <citoq/data_packet.hpp>
+#include <citoq/demand_control.hpp>
+#include <citoq/demand_summary.hpp>
+#include <citoq/interest.hpp>
+#include <citoq/remote_routes.hpp>
 
 #include <arpa/inet.h>
 #include <poll.h>
@@ -113,8 +113,8 @@ sockaddr_in address_of(
 }
 
 struct PendingSnapshot {
-    cito::DemandSummaryStamp stamp{};
-    std::vector<cito::InterestKey> keys;
+    citoq::DemandSummaryStamp stamp{};
+    std::vector<citoq::InterestKey> keys;
     std::uint32_t next_offset{};
 };
 
@@ -147,12 +147,12 @@ int subscriber(int argc, char** argv) {
             ? std::stoull(argv[9])
             : 3500ull;
 
-    const cito::InterestKey key{
+    const citoq::InterestKey key{
         7,
         17,
         type};
 
-    cito::HostInterests local;
+    citoq::HostInterests local;
     local.add(key);
     const auto stamp =
         local.stamp(node * 1000 + 1);
@@ -187,13 +187,13 @@ int subscriber(int argc, char** argv) {
             announce_ip,
             announce_port);
 
-    const cito::DemandSummaryAnnouncement announcement{
+    const citoq::DemandSummaryAnnouncement announcement{
         node,
         control_port,
         600,
         stamp};
     const auto announce_bytes =
-        cito::encode_summary_announcement(
+        citoq::encode_summary_announcement(
             announcement);
 
     const auto start = Clock::now();
@@ -251,7 +251,7 @@ int subscriber(int argc, char** argv) {
                     bytes[2] == 'Q' &&
                     bytes[3] == '1') {
                     const auto request =
-                        cito::decode_snapshot_request(
+                        citoq::decode_snapshot_request(
                             bytes);
 
                     if (request.coordinator != node) {
@@ -269,7 +269,7 @@ int subscriber(int argc, char** argv) {
                     }
 
                     const auto batch =
-                        cito::make_snapshot_batch(
+                        citoq::make_snapshot_batch(
                             node,
                             stamp,
                             snapshot,
@@ -278,7 +278,7 @@ int subscriber(int argc, char** argv) {
 
                     if (!send_bytes(
                             control_fd,
-                            cito::encode_snapshot_batch(
+                            citoq::encode_snapshot_batch(
                                 batch),
                             from)) {
                         return 26;
@@ -289,7 +289,7 @@ int subscriber(int argc, char** argv) {
                     bytes[2] == 'R' &&
                     bytes[3] == '3') {
                     const auto request =
-                        cito::decode_route_request(
+                        citoq::decode_route_request(
                             bytes);
 
                     if (
@@ -302,7 +302,7 @@ int subscriber(int argc, char** argv) {
                     ++route_requests;
 
                     if (request.key == key) {
-                        const cito::RouteBatch routes{
+                        const citoq::RouteBatch routes{
                             node,
                             stamp.incarnation,
                             key,
@@ -310,7 +310,7 @@ int subscriber(int argc, char** argv) {
 
                         if (!send_bytes(
                                 control_fd,
-                                cito::encode_route_batch(
+                                citoq::encode_route_batch(
                                     routes),
                                 from)) {
                             return 27;
@@ -335,7 +335,7 @@ int subscriber(int argc, char** argv) {
 
             try {
                 const auto data =
-                    cito::decode_data_packet_view(
+                    citoq::decode_data_packet_view(
                         bytes);
                 constexpr std::string_view expected =
                     "hello";
@@ -428,7 +428,7 @@ int publisher(int argc, char** argv) {
     const auto listen_ms =
         std::stoull(argv[5]);
 
-    const cito::InterestKey target{
+    const citoq::InterestKey target{
         7,
         17,
         target_type};
@@ -448,22 +448,22 @@ int publisher(int argc, char** argv) {
         return 40;
     }
 
-    cito::RemoteSummaryTracker tracker;
-    cito::RemoteDemandIndex hosts;
-    cito::RemoteRouteIndex direct;
-    cito::CoordinatorLeaseTable leases;
+    citoq::RemoteSummaryTracker tracker;
+    citoq::RemoteDemandIndex hosts;
+    citoq::RemoteRouteIndex direct;
+    citoq::CoordinatorLeaseTable leases;
 
     std::unordered_map<
-        cito::CoordinatorId,
+        citoq::CoordinatorId,
         sockaddr_in> controls;
     std::unordered_map<
-        cito::CoordinatorId,
+        citoq::CoordinatorId,
         PendingSnapshot> pending;
     std::unordered_map<
-        cito::CoordinatorId,
+        citoq::CoordinatorId,
         std::uint64_t> route_requested;
     std::unordered_map<
-        cito::DestinationId,
+        citoq::DestinationId,
         sockaddr_in> endpoints;
 
     std::size_t snapshot_pulls = 0;
@@ -473,7 +473,7 @@ int publisher(int argc, char** argv) {
     std::size_t stale_control = 0;
 
     auto cleanup_host =
-        [&](cito::CoordinatorId id) {
+        [&](citoq::CoordinatorId id) {
             hosts.remove_host(id);
             tracker.forget(id);
             pending.erase(id);
@@ -487,8 +487,8 @@ int publisher(int argc, char** argv) {
         };
 
     auto request_snapshot =
-        [&](cito::CoordinatorId id,
-            const cito::DemandSummaryStamp& stamp,
+        [&](citoq::CoordinatorId id,
+            const citoq::DemandSummaryStamp& stamp,
             std::uint32_t offset) {
             const auto it =
                 controls.find(id);
@@ -497,23 +497,23 @@ int publisher(int argc, char** argv) {
                 return false;
             }
 
-            const cito::DemandSnapshotRequest request{
+            const citoq::DemandSnapshotRequest request{
                 id,
                 stamp.incarnation,
                 stamp.version,
                 offset,
-                cito::kMaxDemandSnapshotBatch};
+                citoq::kMaxDemandSnapshotBatch};
 
             ++snapshot_pulls;
             return send_bytes(
                 fd,
-                cito::encode_snapshot_request(
+                citoq::encode_snapshot_request(
                     request),
                 it->second);
         };
 
     auto request_route =
-        [&](cito::CoordinatorId id,
+        [&](citoq::CoordinatorId id,
             std::uint64_t incarnation) {
             const auto requested =
                 route_requested.find(id);
@@ -539,7 +539,7 @@ int publisher(int argc, char** argv) {
 
             return send_bytes(
                 fd,
-                cito::encode_route_request(
+                citoq::encode_route_request(
                     {id, incarnation, target}),
                 it->second);
         };
@@ -582,7 +582,7 @@ int publisher(int argc, char** argv) {
                         bytes[2] == 'S' &&
                         bytes[3] == '2') {
                         const auto announcement =
-                            cito::decode_summary_announcement(
+                            citoq::decode_summary_announcement(
                                 bytes);
 
                         const auto observation =
@@ -594,7 +594,7 @@ int publisher(int argc, char** argv) {
 
                         if (
                             observation ==
-                            cito::CoordinatorLeaseObservation::
+                            citoq::CoordinatorLeaseObservation::
                                 Stale) {
                             ++stale_control;
                             continue;
@@ -602,7 +602,7 @@ int publisher(int argc, char** argv) {
 
                         if (
                             observation ==
-                            cito::CoordinatorLeaseObservation::
+                            citoq::CoordinatorLeaseObservation::
                                 Restarted) {
                             ++restarts;
                             cleanup_host(
@@ -643,7 +643,7 @@ int publisher(int argc, char** argv) {
                         bytes[2] == 'B' &&
                         bytes[3] == '1') {
                         const auto batch =
-                            cito::decode_snapshot_batch(
+                            citoq::decode_snapshot_batch(
                                 bytes);
 
                         if (!leases.is_current(
@@ -719,7 +719,7 @@ int publisher(int argc, char** argv) {
                         bytes[2] == 'R' &&
                         bytes[3] == '4') {
                         const auto route_batch =
-                            cito::decode_route_batch(
+                            citoq::decode_route_batch(
                                 bytes);
 
                         if (
@@ -733,7 +733,7 @@ int publisher(int argc, char** argv) {
                         }
 
                         std::vector<
-                            cito::DestinationId> ids;
+                            citoq::DestinationId> ids;
                         ids.reserve(
                             route_batch.endpoints
                                 .size());
@@ -791,13 +791,13 @@ int publisher(int argc, char** argv) {
         return 46;
     }
 
-    const cito::DataPacket packet{
+    const citoq::DataPacket packet{
         target,
         std::vector<std::uint8_t>{
             'h', 'e', 'l', 'l', 'o'}};
 
     const auto payload =
-        cito::encode_data_packet(packet);
+        citoq::encode_data_packet(packet);
 
     for (const auto id :
          destinations) {

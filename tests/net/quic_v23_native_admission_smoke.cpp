@@ -1,5 +1,5 @@
-#include <cito/detail/request_msquic_listener.hpp>
-#include <cito/detail/request_msquic_server_admission.hpp>
+#include <citoq/detail/request_msquic_listener.hpp>
+#include <citoq/detail/request_msquic_server_admission.hpp>
 #include <msquic.h>
 
 #include <algorithm>
@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
     const QUIC_API_TABLE* api = nullptr;
     if (QUIC_FAILED(MsQuicOpen2(&api)) || !api) { std::cerr << "admission_open_api_failed\n"; return 10; }
     HQUIC registration = nullptr;
-    const QUIC_REGISTRATION_CONFIG reg_config{"cito-v23-admission-smoke",
+    const QUIC_REGISTRATION_CONFIG reg_config{"citoq-v23-admission-smoke",
                                                QUIC_EXECUTION_PROFILE_LOW_LATENCY};
     if (QUIC_FAILED(api->RegistrationOpen(&reg_config, &registration))) { std::cerr << "admission_registration_failed\n"; return 11; }
 
@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
         allowlisted_cert.assign(std::istreambuf_iterator<char>(der),
                                std::istreambuf_iterator<char>());
         if (allowlisted_cert.empty() || allowlisted_cert.size() >
-            cito::detail::RequestMsQuicServerAdmission::kMaxPeerCertificateBytes) return 16;
+            citoq::detail::RequestMsQuicServerAdmission::kMaxPeerCertificateBytes) return 16;
     }
 
     QUIC_CERTIFICATE_FILE file{};
@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
     {
         // Test-only authorization: proves the callback and owner-loop boundary.
         // It is deliberately NOT a substitute for a peer certificate policy.
-        cito::detail::RequestMsQuicServerAdmission::AuthorizeIdentity identity_policy;
+        citoq::detail::RequestMsQuicServerAdmission::AuthorizeIdentity identity_policy;
         if (identity_mode) {
             identity_policy = [allowlisted_cert](HQUIC,
                           std::span<const std::uint8_t> der) {
@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
                        std::equal(der.begin(), der.end(), allowlisted_cert.begin());
             };
         }
-        cito::detail::RequestMsQuicServerAdmission admission(
+        citoq::detail::RequestMsQuicServerAdmission admission(
             api, configuration, 4,
             [&](HQUIC) {
                 seen.fetch_add(1, std::memory_order_relaxed);
@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
             [&](HQUIC) { closed.fetch_add(1, std::memory_order_relaxed); },
             std::move(identity_policy));
 
-        cito::detail::RequestMsQuicListener listener(
+        citoq::detail::RequestMsQuicListener listener(
             api, registration, [&](HQUIC h) { return admission.accept(h); });
 
         QUIC_ADDR address{};
@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
              seen.load() == (expect_no_client ? 0U : 1U) &&
              authorized.load() == ((deny || expect_no_client) ? 0U : 1U) &&
              closed.load() == ((deny || expect_no_client) ? 0U : 1U);
-        std::cout << "cito_v23_native_admission seen=" << seen.load()
+        std::cout << "citoq_v23_native_admission seen=" << seen.load()
                   << " denied=" << deny
                   << " authorized=" << authorized.load()
                   << " closed=" << closed.load()

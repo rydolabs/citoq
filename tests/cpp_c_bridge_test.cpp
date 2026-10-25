@@ -1,5 +1,5 @@
-#include <cito/cito.hpp>
-#include <cito/cito_c.h>
+#include <citoq/citoq.hpp>
+#include <citoq/citoq_c.h>
 
 #include <cassert>
 #include <cstdint>
@@ -11,7 +11,7 @@ struct BridgeValue {
     std::uint32_t value{};
 };
 
-namespace cito {
+namespace citoq {
 
 template <>
 struct StaticType<BridgeValue> {
@@ -46,7 +46,7 @@ struct StaticCodec<BridgeValue> {
     }
 };
 
-} // namespace cito
+} // namespace citoq
 
 struct CState {
     int calls{0};
@@ -61,7 +61,7 @@ static void c_callback(
     const std::uint8_t* payload,
     std::size_t payload_size) {
     auto* state = static_cast<CState*>(user);
-    const auto decoded = cito::StaticCodec<BridgeValue>::decode(
+    const auto decoded = citoq::StaticCodec<BridgeValue>::decode(
         std::span<const std::uint8_t>(payload, payload_size));
     ++state->calls;
     state->value = decoded.value;
@@ -69,25 +69,25 @@ static void c_callback(
 
 int main() {
     const auto type_id =
-        cito::static_type_ref<BridgeValue>().type_id();
+        citoq::static_type_ref<BridgeValue>().type_id();
 
     // C++ publisher -> C ABI subscriber crosses executable/DSO boundary.
-    cito_context_t* c_subscriber = nullptr;
-    assert(cito_context_create("acme", 4, &c_subscriber) == CITO_STATUS_OK);
+    citoq_context_t* c_subscriber = nullptr;
+    assert(citoq_context_create("acme", 4, &c_subscriber) == CITOQ_STATUS_OK);
 
     CState c_state;
-    cito_subscription_t* c_sub = nullptr;
-    assert(cito_context_subscribe(
+    citoq_subscription_t* c_sub = nullptr;
+    assert(citoq_context_subscribe(
         c_subscriber,
         type_id,
         "bridge",
         6,
         c_callback,
         &c_state,
-        &c_sub) == CITO_STATUS_OK);
+        &c_sub) == CITOQ_STATUS_OK);
 
     {
-        cito::Context cpp_publisher("acme");
+        citoq::Context cpp_publisher("acme");
         assert(cpp_publisher.publish("bridge", BridgeValue{77}) == 1);
     }
 
@@ -97,7 +97,7 @@ int main() {
     // C ABI publisher -> C++ subscriber proves the reverse direction.
     int cpp_calls = 0;
     {
-        cito::Context cpp_subscriber("acme");
+        citoq::Context cpp_subscriber("acme");
         auto cpp_sub = cpp_subscriber.subscribe<BridgeValue>(
             "reverse",
             [&](const BridgeValue& value) {
@@ -105,27 +105,27 @@ int main() {
                 assert(value.value == 91);
             });
 
-        cito_context_t* c_publisher = nullptr;
-        assert(cito_context_create("acme", 4, &c_publisher) == CITO_STATUS_OK);
+        citoq_context_t* c_publisher = nullptr;
+        assert(citoq_context_create("acme", 4, &c_publisher) == CITOQ_STATUS_OK);
 
         const auto bytes =
-            cito::StaticCodec<BridgeValue>::encode(BridgeValue{91});
+            citoq::StaticCodec<BridgeValue>::encode(BridgeValue{91});
         std::size_t delivered = 0;
-        assert(cito_context_publish(
+        assert(citoq_context_publish(
             c_publisher,
             type_id,
             "reverse",
             7,
             bytes.data(),
             bytes.size(),
-            &delivered) == CITO_STATUS_OK);
+            &delivered) == CITOQ_STATUS_OK);
 
         assert(delivered == 1);
         assert(cpp_calls == 1);
-        cito_context_destroy(c_publisher);
+        citoq_context_destroy(c_publisher);
     }
 
-    cito_subscription_destroy(c_sub);
-    cito_context_destroy(c_subscriber);
+    citoq_subscription_destroy(c_sub);
+    citoq_context_destroy(c_subscriber);
     return 0;
 }

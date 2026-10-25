@@ -1,30 +1,30 @@
-#include <cito/discovery.hpp>
+#include <citoq/discovery.hpp>
 
 #include <cassert>
 
 int main() {
-    cito::InterestIndex index;
-    cito::InterestLeaseTable leases(index);
+    citoq::InterestIndex index;
+    citoq::InterestLeaseTable leases(index);
 
-    const cito::InterestAdvertisement position{
-        cito::InterestOp::Add,
+    const citoq::InterestAdvertisement position{
+        citoq::InterestOp::Add,
         48001,
         1000,
         11,
         {7, 17, 100}};
 
-    const cito::InterestAdvertisement battery{
-        cito::InterestOp::Add,
+    const citoq::InterestAdvertisement battery{
+        citoq::InterestOp::Add,
         48002,
         1000,
         12,
         {7, 17, 200}};
 
     leases.observe(
-        cito::decode_interest(cito::encode_interest(position)),
+        citoq::decode_interest(citoq::encode_interest(position)),
         0);
     leases.observe(
-        cito::decode_interest(cito::encode_interest(battery)),
+        citoq::decode_interest(citoq::encode_interest(battery)),
         0);
 
     assert(index.lookup({7, 17, 100}).size() == 1);
