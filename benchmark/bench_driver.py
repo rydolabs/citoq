@@ -191,6 +191,13 @@ def cyclone_run(args, collector):
             writer.write(BenchMsg(seq,stamp,list(raw[16:])))
             return 1
         paced_send(args,send)
+        # Reliable DDS writers must remain alive to retransmit until ACKed,
+        # rather than being destroyed immediately after the final write.
+        acked = writer.wait_for_acks(5_000_000_000)
+        print(f"CYCLONEDDS_WRITER_ACKED={int(acked)}", flush=True)
+        if not acked:
+            # Preserve the evidence: failure remains a failure, not a hidden success.
+            raise RuntimeError("CycloneDDS reliable writer ACK timeout")
 
 
 def paced_send(args, fn, service=None, wait_for_match=False):
