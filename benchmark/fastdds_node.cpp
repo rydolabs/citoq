@@ -92,7 +92,10 @@ int main(int argc,char**argv) {
         msg.payload(std::string(payload_size-12,'B'));
         ensure(writer->write(&msg),"write");
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(700));
+      // Keep the RELIABLE writer alive after the final sample so late NACK
+      // retransmissions can complete under netem loss, rather than deleting
+      // the participant immediately after issuing the writes.
+      std::this_thread::sleep_for(std::chrono::milliseconds(4000));
       std::cout<<"SENDER_OK engine=fastdds sent="<<count<<std::endl;
       factory->delete_participant(dp);
       return 0;
