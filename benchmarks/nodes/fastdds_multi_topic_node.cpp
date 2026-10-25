@@ -9,6 +9,7 @@
 #include <fastdds/dds/topic/TypeSupport.hpp>
 #include <fastdds/dds/core/status/PublicationMatchedStatus.hpp>
 #include <fastdds/dds/core/status/StatusMask.hpp>
+#include <fastdds/rtps/transport/UDPv4TransportDescriptor.h>
 #include "BenchMsg.h"
 #include "BenchMsgPubSubTypes.h"
 #include <algorithm>
@@ -38,7 +39,13 @@ int main(int argc,char**argv){
   int subscribed=std::max(1,(topics*pct+99)/100);
   int active=pub?topics:(negative?1:subscribed);
   uint64_t expected=(uint64_t)subscribed*samples;
-  DomainParticipant*part=DomainParticipantFactory::get_instance()->create_participant(0,PARTICIPANT_QOS_DEFAULT);
+  DomainParticipantQos pqos=PARTICIPANT_QOS_DEFAULT;
+  // Each netns is a separate virtual node on one Linux host.
+  // Disable Fast DDS shared memory so every sample actually traverses veth.
+  pqos.transport().use_builtin_transports=false;
+  pqos.transport().user_transports.push_back(
+      std::make_shared<eprosima::fastdds::rtps::UDPv4TransportDescriptor>());
+  DomainParticipant*part=DomainParticipantFactory::get_instance()->create_participant(0,pqos);
   if(!part)throw std::runtime_error("participant");
   TypeSupport type(new Bench::MsgPubSubType());
   type.register_type(part);

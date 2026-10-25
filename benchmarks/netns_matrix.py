@@ -140,12 +140,22 @@ def trial(args,engine,repeat):
                 call += [engine.removeprefix('zenoh-')]
             p=subprocess.Popen(call,stdout=file,stderr=subprocess.STDOUT,env=env)
             p_by_index[i]=p
-        for i in range(1,n):
-            launch(i)
-            if args.stagger_ms:time.sleep(args.stagger_ms/1000)
-        time.sleep(.4)
-        publisher_start=time.monotonic()
-        launch(0)
+        if engine.startswith('zenoh-'):
+            # Explicit TCP endpoint at publisher/router must exist before client
+            # sessions open (client mode fails fast if target is absent).
+            publisher_start=time.monotonic()
+            launch(0)
+            time.sleep(.6)
+            for i in range(1,n):
+                launch(i)
+                if args.stagger_ms:time.sleep(args.stagger_ms/1000)
+        else:
+            for i in range(1,n):
+                launch(i)
+                if args.stagger_ms:time.sleep(args.stagger_ms/1000)
+            time.sleep(.4)
+            publisher_start=time.monotonic()
+            launch(0)
         deadline=time.monotonic()+args.lifetime_ms/1000+12
         publisher_log=folder/'node-000-publisher.log'
         while time.monotonic()<deadline:
@@ -202,6 +212,15 @@ def trial(args,engine,repeat):
         if discovery:
             pre=delta(discovery,before)
             row.update({f'prepublish_{k}':v for k,v in pre.items()})
+    if not truth:
+        row['exit_codes']={str(i):(p.returncode if p.returncode is not None else 'running') for i,p in p_by_index.items()}
+        print('BENCH_INVALID '+json.dumps({'engine':engine,'profile':args.profile,'exit_codes':row['exit_codes']}),flush=True)
+        for i in (0,1,n-1):
+            role='publisher' if i==0 else ('negative' if i==n-1 else 'subscriber')
+            log=folder/f'node-{i:03d}-{role}.log'
+            if log.exists():
+                lines=log.read_text(errors='replace').splitlines()
+                print(f'BENCH_DIAGNOSTIC node={i} role={role}: '+repr(lines[-8:])[:1700],flush=True)
     (folder/'result.json').write_text(json.dumps(dict(row=row,publisher=publisher,negative=negative,subscribers=positives,
                     resource_stats=metrics,interface_before=before,interface_prepublish=discovery,interface_after=after),indent=2)+'\n')
     return row
