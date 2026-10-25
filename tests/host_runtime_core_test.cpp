@@ -1,5 +1,5 @@
-#include <cito/detail/host_runtime_core.hpp>
-#include <cito/identity.hpp>
+#include <citoq/detail/host_runtime_core.hpp>
+#include <citoq/identity.hpp>
 
 #include <array>
 #include <cassert>
@@ -10,19 +10,19 @@
 
 int main() {
     assert(
-        cito::stable_name_id(
+        citoq::stable_name_id(
             "acme") ==
         514768821131075087ull);
     assert(
-        cito::stable_name_id(
+        citoq::stable_name_id(
             "drone_17") ==
         1308784374555480002ull);
 
-    cito::detail::HostRuntimeCore host;
+    citoq::detail::HostRuntimeCore host;
 
-    const cito::InterestKey position{
-        cito::stable_name_id("acme"),
-        cito::stable_name_id("drone_17"),
+    const citoq::InterestKey position{
+        citoq::stable_name_id("acme"),
+        citoq::stable_name_id("drone_17"),
         100};
 
     std::size_t app1_calls = 0;
@@ -103,11 +103,11 @@ int main() {
             1001,
             500,
             1000) ==
-        cito::CoordinatorLeaseObservation::
+        citoq::CoordinatorLeaseObservation::
             Added);
 
     const std::array<
-        cito::InterestKey,
+        citoq::InterestKey,
         1> keys{position};
 
     assert(host.apply_remote_snapshot(
@@ -121,7 +121,7 @@ int main() {
             .contains(7));
 
     const std::array<
-        cito::DestinationId,
+        citoq::DestinationId,
         2> destinations{70, 71};
 
     assert(host.replace_remote_routes(
@@ -131,7 +131,7 @@ int main() {
         destinations));
 
     std::vector<
-        cito::DestinationId> reached;
+        citoq::DestinationId> reached;
 
     result =
         host.publish(
@@ -141,7 +141,7 @@ int main() {
             [&](auto destination,
                 auto packet) {
                 const auto decoded =
-                    cito::
+                    citoq::
                         decode_data_packet_view(
                             packet);
                 assert(
@@ -196,8 +196,8 @@ int main() {
 
     // App destruction from inside delivery must be deferred until the
     // current callback returns.
-    cito::detail::HostRuntimeCore reentrant;
-    const cito::InterestKey self_key{
+    citoq::detail::HostRuntimeCore reentrant;
+    const citoq::InterestKey self_key{
         9, 9, 9};
 
     reentrant.register_app(

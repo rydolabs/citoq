@@ -1,6 +1,6 @@
 #include "request_reply.hpp"
 
-#include <cito/cito.hpp>
+#include <citoq/citoq.hpp>
 
 #include <cassert>
 #include <coroutine>
@@ -34,7 +34,7 @@ struct FireAndForget {
 };
 
 FireAndForget await_status(
-    cito::Context& requester,
+    citoq::Context& requester,
     bool& completed) {
     auto result =
         co_await requester.request(
@@ -46,7 +46,7 @@ FireAndForget await_status(
     assert(result);
     assert(
         result.status() ==
-        cito::RequestStatus::Ok);
+        citoq::RequestStatus::Ok);
     assert(
         result.value().battery ==
         84);
@@ -61,13 +61,13 @@ FireAndForget await_status(
 int main() {
     static_assert(
         std::is_same_v<
-            cito::ReplyTypeT<
+            citoq::ReplyTypeT<
                 acme::GetStatus>,
             acme::Status>);
 
-    cito::Context provider("acme");
-    cito::Context requester("acme");
-    cito::Context isolated("other");
+    citoq::Context provider("acme");
+    citoq::Context requester("acme");
+    citoq::Context isolated("other");
 
     int handler_calls = 0;
 
@@ -123,7 +123,7 @@ int main() {
     assert(
         wrong_resource.result()
             .status() ==
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Unavailable);
 
     auto wrong_scope =
@@ -138,7 +138,7 @@ int main() {
     assert(
         wrong_scope.result()
             .status() ==
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Unavailable);
 
     // The optional registration handle is only for explicit early removal.
@@ -168,7 +168,7 @@ int main() {
     assert(
         after_close.result()
             .status() ==
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Unavailable);
 
     return 0;

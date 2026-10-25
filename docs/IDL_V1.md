@@ -1,16 +1,16 @@
-# Cito IDL v1 — Supported Subset
+# CitoQ IDL v1 — Supported Subset
 
 ## Purpose
 
-Cito uses an intentionally small OMG IDL data-definition subset as the primary schema language. It is not a full CORBA IDL implementation and it does not expose DDS participants, topics, writers/readers, keys, QoS, or instance lifecycle.
+CitoQ uses an intentionally small OMG IDL data-definition subset as the primary schema language. It is not a full CORBA IDL implementation and it does not expose DDS participants, topics, writers/readers, keys, QoS, or instance lifecycle.
 
 The compiler entry point is:
 
 ```bash
-python3 tools/cito_idlc.py schema.idl -o schema.hpp
+python3 tools/citoq_idlc.py schema.idl -o schema.hpp
 ```
 
-Generated C++ types carry Cito static adapters that reconstruct the same canonical `Type` / `EnumType` model used by `TypeBuilder`.
+Generated C++ types carry CitoQ static adapters that reconstruct the same canonical `Type` / `EnumType` model used by `TypeBuilder`.
 
 ## Supported syntax
 
@@ -34,7 +34,7 @@ Current prototype support:
 - `@optional`
 - line and block comments
 
-Every struct member must have an explicit non-zero `@id(N)`. This is deliberate: Cito treats stable FieldIds as part of the schema-evolution contract and does not silently derive them from field order.
+Every struct member must have an explicit non-zero `@id(N)`. This is deliberate: CitoQ treats stable FieldIds as part of the schema-evolution contract and does not silently derive them from field order.
 
 ## Example
 
@@ -82,7 +82,7 @@ generated C++ value
 generated StaticCodec<T>
       |
       v
-tagged Cito wire
+tagged CitoQ wire
 
 
 tooling / simulation / reference path:
@@ -93,7 +93,7 @@ generated C++ value
 DynamicData
       |
       v
-tagged Cito wire
+tagged CitoQ wire
 ```
 
 The generated direct codec handles scalar, string, enum, optional, nested struct, fixed array, and sequence values without converting the production message through DynamicData.
@@ -116,4 +116,4 @@ Nested structs, arrays, and sequences now participate in generated static <-> Dy
 - absolute leading scoped names
 - constants and expressions beyond enum integer literals / positive bounds
 
-These should only be added when they solve a concrete Cito use case without leaking complexity into the normal `publish/on` API.
+These should only be added when they solve a concrete CitoQ use case without leaking complexity into the normal `publish/on` API.

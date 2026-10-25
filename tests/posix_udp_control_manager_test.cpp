@@ -1,4 +1,4 @@
-#include <cito/detail/posix_udp_control_manager.hpp>
+#include <citoq/detail/posix_udp_control_manager.hpp>
 
 #include <array>
 #include <cassert>
@@ -7,7 +7,7 @@
 #include <thread>
 
 int main() {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     const RequestKey request{
         7,
@@ -35,7 +35,7 @@ int main() {
         1001);
 
     const std::array<
-        cito::RouteEndpoint,
+        citoq::RouteEndpoint,
         1> endpoints{{
             {77, 0, 4433}}};
 

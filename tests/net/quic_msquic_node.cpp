@@ -1,4 +1,4 @@
-#include <cito/data_packet.hpp>
+#include <citoq/data_packet.hpp>
 #include <msquic.h>
 #include <chrono>
 #include <condition_variable>
@@ -42,8 +42,8 @@ struct SendContext {
 
 bool verify_packet(std::span<const std::uint8_t> bytes) {
     try {
-        const auto packet = cito::decode_data_packet_view(bytes);
-        const cito::InterestKey expected{7,17,100};
+        const auto packet = citoq::decode_data_packet_view(bytes);
+        const citoq::InterestKey expected{7,17,100};
         static constexpr char text[] = "hello-quic";
         if (!(packet.key == expected) || packet.payload.size() != sizeof(text) - 1) return false;
         return std::memcmp(packet.payload.data(), text, sizeof(text) - 1) == 0;
@@ -170,7 +170,7 @@ QUIC_STATUS QUIC_API ClientConnectionCallback(HQUIC Connection, void* context, Q
 
 bool open_api() {
     if (QUIC_FAILED(MsQuicOpen2(&Api))) return false;
-    const QUIC_REGISTRATION_CONFIG registration{"cito-quic-smoke", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
+    const QUIC_REGISTRATION_CONFIG registration{"citoq-quic-smoke", QUIC_EXECUTION_PROFILE_LOW_LATENCY};
     return QUIC_SUCCEEDED(Api->RegistrationOpen(&registration, &Registration));
 }
 
@@ -211,8 +211,8 @@ bool open_configuration(bool server, const char* cert = nullptr, const char* key
 }
 
 std::vector<std::uint8_t> make_payload() {
-    cito::DataPacket packet{{7,17,100}, {'h','e','l','l','o','-','q','u','i','c'}};
-    return cito::encode_data_packet(packet);
+    citoq::DataPacket packet{{7,17,100}, {'h','e','l','l','o','-','q','u','i','c'}};
+    return citoq::encode_data_packet(packet);
 }
 
 int run_server(std::uint16_t port, const char* cert, const char* key) {

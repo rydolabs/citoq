@@ -1,4 +1,4 @@
-#include <cito/detail/request_transport.hpp>
+#include <citoq/detail/request_transport.hpp>
 
 #include <array>
 #include <cassert>
@@ -12,7 +12,7 @@ namespace {
 bool throws_decode(
     std::span<const std::uint8_t> bytes) {
     try {
-        (void)cito::detail::
+        (void)citoq::detail::
             decode_request_transport_frame(
                 bytes);
         return false;
@@ -22,11 +22,11 @@ bool throws_decode(
 }
 
 void seed_route(
-    cito::detail::HostRuntimeCore& host,
-    const cito::detail::RequestKey& key,
+    citoq::detail::HostRuntimeCore& host,
+    const citoq::detail::RequestKey& key,
     std::uint64_t version) {
     const auto capability =
-        cito::detail::
+        citoq::detail::
             request_handler_interest_key(
                 key);
 
@@ -39,13 +39,13 @@ void seed_route(
                 1001,
                 10000,
                 0) ==
-            cito::
+            citoq::
                 CoordinatorLeaseObservation::
                     Added);
     }
 
     const std::array<
-        cito::InterestKey,
+        citoq::InterestKey,
         1> keys{capability};
 
     assert(
@@ -55,7 +55,7 @@ void seed_route(
             keys));
 
     const std::array<
-        cito::DestinationId,
+        citoq::DestinationId,
         2> destinations{
             88,
             77};
@@ -71,7 +71,7 @@ void seed_route(
 } // namespace
 
 int main() {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     const RequestKey key{
         0x1112131415161718ull,

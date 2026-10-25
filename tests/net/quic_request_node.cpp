@@ -1,4 +1,4 @@
-#include <cito/detail/request_transport.hpp>
+#include <citoq/detail/request_transport.hpp>
 
 #include <msquic.h>
 
@@ -35,7 +35,7 @@ const QUIC_BUFFER Alpn{
     const_cast<std::uint8_t*>(
         AlpnBytes)};
 
-const cito::detail::RequestKey
+const citoq::detail::RequestKey
     kRequestKey{
         7,
         17,
@@ -136,10 +136,10 @@ struct LoopState {
             predicate();
     }
 
-    cito::detail::HostRuntimeCore host;
-    cito::detail::RequestReplyCore
+    citoq::detail::HostRuntimeCore host;
+    citoq::detail::RequestReplyCore
         requests;
-    cito::detail::RequestTransportCore
+    citoq::detail::RequestTransportCore
         transport;
 
     std::mutex queue_mutex;
@@ -166,7 +166,7 @@ bool open_api() {
 
     const QUIC_REGISTRATION_CONFIG
         registration{
-            "cito-request-quic-smoke",
+            "citoq-request-quic-smoke",
             QUIC_EXECUTION_PROFILE_LOW_LATENCY};
 
     return QUIC_SUCCEEDED(
@@ -609,7 +609,7 @@ ClientConnectionCallback(
 void seed_remote_route(
     LoopState& state) {
     const auto capability =
-        cito::detail::
+        citoq::detail::
             request_handler_interest_key(
                 kRequestKey);
 
@@ -619,7 +619,7 @@ void seed_remote_route(
             9001,
             10000,
             0) !=
-        cito::
+        citoq::
             CoordinatorLeaseObservation::
                 Added) {
         throw std::runtime_error(
@@ -627,7 +627,7 @@ void seed_remote_route(
     }
 
     const std::array<
-        cito::InterestKey,
+        citoq::InterestKey,
         1> keys{capability};
 
     if (!state.host.apply_remote_snapshot(
@@ -639,7 +639,7 @@ void seed_remote_route(
     }
 
     const std::array<
-        cito::DestinationId,
+        citoq::DestinationId,
         1> destinations{77};
 
     if (!state.host.replace_remote_routes(
@@ -670,12 +670,12 @@ int run_server(
     state.requests.register_handler(
         2,
         kRequestKey,
-        [](cito::detail::RequestId,
-           cito::detail::AppId requester,
+        [](citoq::detail::RequestId,
+           citoq::detail::AppId requester,
            std::span<
                const std::uint8_t>
                payload,
-           cito::detail::
+           citoq::detail::
                RequestReplyCore::Reply
                reply) {
             static constexpr
@@ -693,7 +693,7 @@ int run_server(
                     payload.end(),
                     expected.begin())) {
                 reply(
-                    cito::detail::
+                    citoq::detail::
                         RequestStatus::
                             InvalidArgument,
                     {});
@@ -707,7 +707,7 @@ int run_server(
                         'p','o','n','g'};
 
             reply(
-                cito::detail::
+                citoq::detail::
                     RequestStatus::Ok,
                 response);
         });
@@ -818,7 +818,7 @@ int run_client(
             1,
             kRequestKey,
             ping,
-            [&](cito::detail::
+            [&](citoq::detail::
                     RequestStatus status,
                 std::span<
                     const std::uint8_t>
@@ -831,7 +831,7 @@ int run_client(
 
                 if (
                     status !=
-                        cito::detail::
+                        citoq::detail::
                             RequestStatus::Ok ||
                     payload.size() !=
                         expected.size() ||

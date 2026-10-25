@@ -1,4 +1,4 @@
-#include <cito/detail/msquic_request_session_manager.hpp>
+#include <citoq/detail/msquic_request_session_manager.hpp>
 
 #include <msquic.h>
 
@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-namespace cito::detail {
+namespace citoq::detail {
 
 namespace {
 
@@ -1831,4 +1831,4 @@ shutdown() {
     }
 }
 
-} // namespace cito::detail
+} // namespace citoq::detail

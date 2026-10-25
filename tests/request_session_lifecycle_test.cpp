@@ -1,11 +1,11 @@
-#include <cito/detail/request_session_lifecycle.hpp>
+#include <citoq/detail/request_session_lifecycle.hpp>
 
 #include <array>
 #include <cassert>
 #include <cstdint>
 
 int main() {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     const RequestKey request{
         7,
@@ -33,7 +33,7 @@ int main() {
         1001);
 
     std::array<
-        cito::RouteEndpoint,
+        citoq::RouteEndpoint,
         1> provider_endpoint{{
             {77, 0, 4433}}};
 

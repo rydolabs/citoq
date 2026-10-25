@@ -1,7 +1,7 @@
-#include <cito/cito.hpp>
-#include <cito/data_packet.hpp>
-#include <cito/detail/embedded_host_runtime.hpp>
-#include <cito/identity.hpp>
+#include <citoq/citoq.hpp>
+#include <citoq/data_packet.hpp>
+#include <citoq/detail/embedded_host_runtime.hpp>
+#include <citoq/identity.hpp>
 
 #include <cassert>
 #include <array>
@@ -11,7 +11,7 @@
 
 struct PacketValue { std::uint32_t value; };
 
-namespace cito {
+namespace citoq {
 template <> struct StaticType<PacketValue> {
     static Type type() {
         return TypeBuilder("tests.PacketValue")
@@ -31,19 +31,19 @@ template <> struct StaticCodec<PacketValue> {
 }
 
 int main() {
-    auto runtime = cito::detail::acquire_embedded_host_runtime();
-    cito::Context receiver("g1-transport");
+    auto runtime = citoq::detail::acquire_embedded_host_runtime();
+    citoq::Context receiver("g1-transport");
     std::size_t received = 0;
     auto sub = receiver.on<PacketValue>("sensor", [&](const PacketValue& v) {
         assert(v.value == 23);
         ++received;
     });
-    const cito::InterestKey key{
-        cito::stable_name_id("g1-transport"),
-        cito::stable_name_id("sensor"),
-        cito::StaticType<PacketValue>::type().type_id()};
+    const citoq::InterestKey key{
+        citoq::stable_name_id("g1-transport"),
+        citoq::stable_name_id("sensor"),
+        citoq::StaticType<PacketValue>::type().type_id()};
     std::array<std::uint8_t, 1> payload{23};
-    const auto packet = cito::encode_data_packet(key, payload);
+    const auto packet = citoq::encode_data_packet(key, payload);
     auto& network = runtime->request_network();
     assert(network.receive_data(packet) == 1);
     assert(received == 1);

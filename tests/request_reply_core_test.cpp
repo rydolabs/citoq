@@ -1,4 +1,4 @@
-#include <cito/detail/request_reply_core.hpp>
+#include <citoq/detail/request_reply_core.hpp>
 
 #include <array>
 #include <cassert>
@@ -9,7 +9,7 @@
 
 namespace {
 
-cito::detail::RequestKey key(
+citoq::detail::RequestKey key(
     std::uint64_t scope,
     std::uint64_t resource,
     std::uint64_t type) {
@@ -22,7 +22,7 @@ cito::detail::RequestKey key(
 } // namespace
 
 int main() {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     RequestReplyCore core;
 

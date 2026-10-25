@@ -1,6 +1,6 @@
-# Cito Testing Policy
+# CitoQ Testing Policy
 
-Every Cito development phase must pass three mandatory test gates before the phase is considered complete:
+Every CitoQ development phase must pass three mandatory test gates before the phase is considered complete:
 
 1. **Unit tests** for the behavior introduced or changed in that phase.
 2. **Regression tests** containing all previously accepted stable tests plus the new stable tests.
@@ -83,7 +83,7 @@ When independent network nodes are required, use Linux network namespaces on one
 ```text
 runner
   |
-br-cito
+br-citoq
  / | \
 A  B  C
 ```

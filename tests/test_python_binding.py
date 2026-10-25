@@ -1,8 +1,8 @@
-import cito
+import citoq
 def main():
-    assert cito.abi_version() == 1
+    assert citoq.abi_version() == 1
     received = []
-    with cito.Context('acme') as ctx:
+    with citoq.Context('acme') as ctx:
         sub = ctx.on(100, received.append, 'drone_17')
         assert ctx.publish(100, b'ignored', 'drone_18') == 0
         assert received == []

@@ -1,23 +1,23 @@
-#include <cito/coordinator_lifecycle.hpp>
-#include <cito/demand_control.hpp>
-#include <cito/demand_summary.hpp>
-#include <cito/remote_routes.hpp>
+#include <citoq/coordinator_lifecycle.hpp>
+#include <citoq/demand_control.hpp>
+#include <citoq/demand_summary.hpp>
+#include <citoq/remote_routes.hpp>
 
 #include <array>
 #include <cassert>
 
 int main() {
-    const cito::InterestKey position{
+    const citoq::InterestKey position{
         1,
         17,
         100};
 
-    cito::CoordinatorLeaseTable leases;
-    cito::RemoteSummaryTracker tracker;
-    cito::RemoteDemandIndex summaries;
-    cito::RemoteRouteIndex routes;
+    citoq::CoordinatorLeaseTable leases;
+    citoq::RemoteSummaryTracker tracker;
+    citoq::RemoteDemandIndex summaries;
+    citoq::RemoteRouteIndex routes;
 
-    const cito::DemandSummaryAnnouncement first{
+    const citoq::DemandSummaryAnnouncement first{
         10,
         47010,
         500,
@@ -29,7 +29,7 @@ int main() {
             first.stamp.incarnation,
             first.lease_ms,
             1000) ==
-        cito::CoordinatorLeaseObservation::Added);
+        citoq::CoordinatorLeaseObservation::Added);
 
     const std::array first_keys{
         position};
@@ -45,7 +45,7 @@ int main() {
             first.stamp));
 
     const std::array first_routes{
-        cito::DestinationId{101}};
+        citoq::DestinationId{101}};
 
     assert(
         routes.replace(
@@ -58,7 +58,7 @@ int main() {
 
     // Same coordinator id, new incarnation: purge all old host-owned state
     // before accepting new detail.
-    const cito::DemandSummaryAnnouncement restarted{
+    const citoq::DemandSummaryAnnouncement restarted{
         10,
         47010,
         500,
@@ -70,7 +70,7 @@ int main() {
             restarted.stamp.incarnation,
             restarted.lease_ms,
             1200) ==
-        cito::CoordinatorLeaseObservation::Restarted);
+        citoq::CoordinatorLeaseObservation::Restarted);
 
     summaries.remove_host(
         restarted.coordinator);
@@ -87,7 +87,7 @@ int main() {
             position).empty());
 
     // A delayed route response from the retired incarnation must be ignored.
-    const cito::RouteBatch stale_route{
+    const citoq::RouteBatch stale_route{
         10,
         1001,
         position,
@@ -129,7 +129,7 @@ int main() {
             restarted.coordinator,
             restarted.stamp));
 
-    const cito::RouteBatch current_route{
+    const citoq::RouteBatch current_route{
         10,
         1002,
         position,

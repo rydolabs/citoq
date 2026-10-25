@@ -1,11 +1,11 @@
-#include <cito/detail/runtime.hpp>
+#include <citoq/detail/runtime.hpp>
 #include <atomic>
 #include <cassert>
 #include <thread>
 
 int main() {
     {
-        cito::detail::EventLoop loop(2);
+        citoq::detail::EventLoop loop(2);
         int count = 0;
         assert(loop.try_post([&] { ++count; }));
         assert(loop.try_post([&] { ++count; loop.stop(); }));
@@ -15,7 +15,7 @@ int main() {
     }
 
     {
-        cito::detail::WorkerPool pool(1, 1);
+        citoq::detail::WorkerPool pool(1, 1);
         assert(!pool.started());
         std::atomic<bool> first_started{false};
         std::atomic<bool> release{false};
@@ -32,7 +32,7 @@ int main() {
     }
 
     {
-        cito::detail::Runtime runtime(2, 16, 8);
+        citoq::detail::Runtime runtime(2, 16, 8);
         std::thread::id loop_id;
         std::thread::id worker_id;
         std::thread::id completion_id;

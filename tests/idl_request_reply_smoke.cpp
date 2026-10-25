@@ -1,6 +1,6 @@
 #include "request_reply.hpp"
 
-#include <cito/static.hpp>
+#include <citoq/static.hpp>
 
 #include <cassert>
 #include <type_traits>
@@ -8,7 +8,7 @@
 int main() {
     static_assert(
         std::is_same_v<
-            cito::ReplyTypeT<
+            citoq::ReplyTypeT<
                 acme::GetStatus>,
             acme::Status>);
 
@@ -16,9 +16,9 @@ int main() {
     request.drone_id = "drone_17";
 
     const auto bytes =
-        cito::encode(request);
+        citoq::encode(request);
     const auto decoded =
-        cito::decode<
+        citoq::decode<
             acme::GetStatus>(
                 bytes);
 

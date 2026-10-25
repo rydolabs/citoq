@@ -12,31 +12,31 @@ int main() {
     value.tags = {"alpha", "beta"};
     value.timestamp = std::uint64_t{99};
 
-    const auto type = cito::type_of<acme::Telemetry>();
+    const auto type = citoq::type_of<acme::Telemetry>();
     assert(type.name() == "acme.Telemetry");
-    assert(type.find("pose")->type.kind == cito::TypeKind::Struct);
-    assert(type.find("mode")->type.kind == cito::TypeKind::Enum);
-    assert(type.find("coefficients")->type.kind == cito::TypeKind::Array);
-    assert(type.find("tags")->type.kind == cito::TypeKind::Sequence);
+    assert(type.find("pose")->type.kind == citoq::TypeKind::Struct);
+    assert(type.find("mode")->type.kind == citoq::TypeKind::Enum);
+    assert(type.find("coefficients")->type.kind == citoq::TypeKind::Array);
+    assert(type.find("tags")->type.kind == citoq::TypeKind::Sequence);
 
-    const auto dynamic = cito::to_dynamic(value);
+    const auto dynamic = citoq::to_dynamic(value);
     const auto nested =
-        std::get<cito::DynamicStruct>(dynamic.value("pose"));
+        std::get<citoq::DynamicStruct>(dynamic.value("pose"));
     assert(nested->get<double>("x") == 1.0);
 
     const auto tags =
-        std::get<cito::DynamicListPtr>(dynamic.value("tags"));
+        std::get<citoq::DynamicListPtr>(dynamic.value("tags"));
     assert(tags->values.size() == 2);
 
-    static_assert(cito::StaticCodec<acme::Pose>::direct);
-    static_assert(cito::StaticCodec<acme::Telemetry>::direct);
+    static_assert(citoq::StaticCodec<acme::Pose>::direct);
+    static_assert(citoq::StaticCodec<acme::Telemetry>::direct);
 
-    const auto bytes = cito::encode(value);
+    const auto bytes = citoq::encode(value);
     const auto reference_bytes =
-        cito::wire::encode(cito::to_dynamic(value));
+        citoq::wire::encode(citoq::to_dynamic(value));
     assert(bytes == reference_bytes);
 
-    const auto roundtrip = cito::decode<acme::Telemetry>(bytes);
+    const auto roundtrip = citoq::decode<acme::Telemetry>(bytes);
 
     assert(roundtrip.pose.x == value.pose.x);
     assert(roundtrip.pose.y == value.pose.y);

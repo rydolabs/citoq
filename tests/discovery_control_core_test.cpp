@@ -1,4 +1,4 @@
-#include <cito/detail/discovery_control_core.hpp>
+#include <citoq/detail/discovery_control_core.hpp>
 
 #include <array>
 #include <cassert>
@@ -8,35 +8,35 @@
 
 namespace {
 
-cito::DemandSnapshotRequest snapshot_request(
-    const cito::detail::ControlAction& action) {
+citoq::DemandSnapshotRequest snapshot_request(
+    const citoq::detail::ControlAction& action) {
     assert(
         action.target ==
-        cito::detail::
+        citoq::detail::
             ControlTargetKind::Coordinator);
-    return cito::decode_snapshot_request(
+    return citoq::decode_snapshot_request(
         action.bytes);
 }
 
-cito::RouteRequest route_request(
-    const cito::detail::ControlAction& action) {
+citoq::RouteRequest route_request(
+    const citoq::detail::ControlAction& action) {
     assert(
         action.target ==
-        cito::detail::
+        citoq::detail::
             ControlTargetKind::Coordinator);
-    return cito::decode_route_request(
+    return citoq::decode_route_request(
         action.bytes);
 }
 
 } // namespace
 
 int main() {
-    const cito::InterestKey position{
+    const citoq::InterestKey position{
         7,
         17,
         100};
 
-    cito::detail::HostRuntimeCore subscriber;
+    citoq::detail::HostRuntimeCore subscriber;
     subscriber.register_app(
         10,
         [](auto, auto, auto) {
@@ -46,15 +46,15 @@ int main() {
         10,
         position);
 
-    cito::detail::HostRuntimeCore publisher;
+    citoq::detail::HostRuntimeCore publisher;
 
-    cito::detail::DiscoveryControlCore
+    citoq::detail::DiscoveryControlCore
         subscriber_control(
             subscriber,
             10,
             1001);
 
-    cito::detail::DiscoveryControlCore
+    citoq::detail::DiscoveryControlCore
         publisher_control(
             publisher,
             20,
@@ -84,11 +84,11 @@ int main() {
 
     assert(
         batch_action.target ==
-        cito::detail::
+        citoq::detail::
             ControlTargetKind::Source);
 
     const auto batch =
-        cito::decode_snapshot_batch(
+        citoq::decode_snapshot_batch(
             batch_action.bytes);
 
     actions =
@@ -115,7 +115,7 @@ int main() {
             actions[0]);
 
     const std::array<
-        cito::RouteEndpoint,
+        citoq::RouteEndpoint,
         1> endpoint{{
             {77, 48010}}};
 
@@ -126,7 +126,7 @@ int main() {
                 endpoint);
 
     const auto route_batch =
-        cito::decode_route_batch(
+        citoq::decode_route_batch(
             route_action.bytes);
 
     assert(
@@ -176,7 +176,7 @@ int main() {
                 empty_request);
 
     const auto empty_batch =
-        cito::decode_snapshot_batch(
+        citoq::decode_snapshot_batch(
             empty_batch_action.bytes);
 
     actions =

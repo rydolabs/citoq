@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
             acme::navigation::FrameKind::Map;
 
         std::cout
-            << to_hex(cito::encode(value))
+            << to_hex(citoq::encode(value))
             << "\n";
         return 0;
     }
@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
         const auto bytes =
             from_hex(argv[2]);
         const auto value =
-            cito::decode<
+            citoq::decode<
                 acme::navigation::Position>(
                 bytes);
 

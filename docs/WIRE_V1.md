@@ -1,4 +1,4 @@
-# Cito Wire v1 — Prototype Direction
+# CitoQ Wire v1 — Prototype Direction
 
 This document describes the current prototype used to validate schema evolution. It is not a frozen wire specification.
 
@@ -45,7 +45,7 @@ Field names remain schema/tooling metadata and are not included in the data reco
 - Required/optional semantics are intentionally minimal.
 - IDL-generated static types now have a direct generated codec and do not require DynamicData on the normal encode/decode hot path.
 - DynamicData remains the tooling/simulation/reference codec, and regression tests require direct-static output to be byte-for-byte identical to it.
-- Nested structs recursively use the same Cito tagged envelope, so their fields keep the same FieldId-based evolution rules.
+- Nested structs recursively use the same CitoQ tagged envelope, so their fields keep the same FieldId-based evolution rules.
 - Array/sequence payloads currently use count + per-element length + element payload framing. This is a correctness/evolution baseline, not a frozen performance format.
 - Unknown fields are skipped during compatible decode; preservation/re-emission of unknown fields is not implemented yet.
 - Nested/container decoding uses non-owning byte spans internally, and the transport packet layer exposes a zero-copy payload view.

@@ -1,5 +1,5 @@
-#include <cito/detail/host_runtime_core.hpp>
-#include <cito/identity.hpp>
+#include <citoq/detail/host_runtime_core.hpp>
+#include <citoq/identity.hpp>
 
 #include <array>
 #include <cassert>
@@ -7,20 +7,20 @@
 #include <string_view>
 
 int main() {
-    cito::detail::HostRuntimeCore host;
+    citoq::detail::HostRuntimeCore host;
 
     const auto scope =
-        cito::stable_name_id("acme");
+        citoq::stable_name_id("acme");
 
-    const cito::InterestKey position{
+    const citoq::InterestKey position{
         scope,
-        cito::stable_name_id(
+        citoq::stable_name_id(
             "drone_17"),
         100};
 
-    const cito::InterestKey battery{
+    const citoq::InterestKey battery{
         scope,
-        cito::stable_name_id(
+        citoq::stable_name_id(
             "drone_17"),
         200};
 
@@ -77,9 +77,9 @@ int main() {
     assert(position_delivered == 1);
     assert(battery_delivered == 0);
 
-    const cito::InterestKey unrelated{
+    const citoq::InterestKey unrelated{
         scope,
-        cito::stable_name_id(
+        citoq::stable_name_id(
             "drone_18"),
         100};
 

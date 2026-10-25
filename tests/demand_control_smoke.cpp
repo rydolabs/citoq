@@ -1,31 +1,31 @@
-#include <cito/demand_control.hpp>
-#include <cito/demand_summary.hpp>
-#include <cito/detail/demand_router.hpp>
+#include <citoq/demand_control.hpp>
+#include <citoq/demand_summary.hpp>
+#include <citoq/detail/demand_router.hpp>
 
 #include <array>
 #include <cassert>
 #include <vector>
 
 int main() {
-    const cito::InterestKey position{
+    const citoq::InterestKey position{
         1,
         17,
         100};
-    const cito::InterestKey battery{
+    const citoq::InterestKey battery{
         1,
         17,
         200};
 
     // Two remote coordinators advertise cheap version stamps.
-    cito::RemoteSummaryTracker tracker;
-    cito::RemoteDemandIndex hosts;
+    citoq::RemoteSummaryTracker tracker;
+    citoq::RemoteDemandIndex hosts;
 
-    const cito::DemandSummaryAnnouncement pos_announce{
+    const citoq::DemandSummaryAnnouncement pos_announce{
         10,
         47010,
         600,
         {1001, 1, 1}};
-    const cito::DemandSummaryAnnouncement bat_announce{
+    const citoq::DemandSummaryAnnouncement bat_announce{
         20,
         47020,
         600,
@@ -43,17 +43,17 @@ int main() {
     std::array bat_keys{battery};
 
     const auto pos_batch =
-        cito::decode_snapshot_batch(
-            cito::encode_snapshot_batch(
-                cito::make_snapshot_batch(
+        citoq::decode_snapshot_batch(
+            citoq::encode_snapshot_batch(
+                citoq::make_snapshot_batch(
                     10,
                     pos_announce.stamp,
                     pos_keys,
                     0)));
     const auto bat_batch =
-        cito::decode_snapshot_batch(
-            cito::encode_snapshot_batch(
-                cito::make_snapshot_batch(
+        citoq::decode_snapshot_batch(
+            citoq::encode_snapshot_batch(
+                citoq::make_snapshot_batch(
                     20,
                     bat_announce.stamp,
                     bat_keys,
@@ -83,17 +83,17 @@ int main() {
     assert(!candidates.contains(20));
 
     // Only the matching host returns detailed direct endpoints.
-    const cito::RouteBatch direct_routes{
+    const citoq::RouteBatch direct_routes{
         10,
         pos_announce.stamp.incarnation,
         position,
         {{101, 48001}}};
     const auto routes =
-        cito::decode_route_batch(
-            cito::encode_route_batch(
+        citoq::decode_route_batch(
+            citoq::encode_route_batch(
                 direct_routes));
 
-    cito::InterestIndex direct;
+    citoq::InterestIndex direct;
     for (const auto& endpoint :
          routes.endpoints) {
         direct.add(
@@ -101,7 +101,7 @@ int main() {
             endpoint.destination);
     }
 
-    cito::detail::DemandRouter router(
+    citoq::detail::DemandRouter router(
         direct);
 
     int encodes = 0;
@@ -114,7 +114,7 @@ int main() {
             return std::vector<std::uint8_t>{
                 1, 2, 3};
         },
-        [&](cito::DestinationId id, const auto&) {
+        [&](citoq::DestinationId id, const auto&) {
             ++sends;
             assert(id == 101);
         }) == 1);

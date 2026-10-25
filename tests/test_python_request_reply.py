@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-import cito
+import citoq
 import request_reply
 
 
@@ -43,9 +43,9 @@ class TinyRequest:
 
 async def main() -> None:
     with (
-        cito.Context("acme") as provider,
-        cito.Context("acme") as requester,
-        cito.Context("other") as isolated,
+        citoq.Context("acme") as provider,
+        citoq.Context("acme") as requester,
+        citoq.Context("other") as isolated,
     ):
         # handle() is Context-owned; ignoring the returned handle is valid.
         provider.handle(
@@ -81,7 +81,7 @@ async def main() -> None:
             await requester.request(
                 TinyRequest(7),
                 "missing")
-        except cito.Unavailable:
+        except citoq.Unavailable:
             pass
         else:
             raise AssertionError(

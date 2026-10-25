@@ -1,57 +1,57 @@
-#include <cito/wire.hpp>
+#include <citoq/wire.hpp>
 
 #include <cassert>
 #include <string>
 
 int main() {
-    const auto pose = cito::TypeBuilder("Pose")
+    const auto pose = citoq::TypeBuilder("Pose")
         .member<double>(1, "x")
         .member<double>(2, "y")
         .build();
 
-    const auto telemetry = cito::TypeBuilder("Telemetry")
-        .member(1, "pose", cito::types::structure(pose))
+    const auto telemetry = citoq::TypeBuilder("Telemetry")
+        .member(1, "pose", citoq::types::structure(pose))
         .member(2, "coefficients",
-            cito::types::array(cito::types::scalar<float>(), 2))
+            citoq::types::array(citoq::types::scalar<float>(), 2))
         .member(3, "tags",
-            cito::types::sequence(cito::types::string(5), 2))
+            citoq::types::sequence(citoq::types::string(5), 2))
         .build();
 
-    auto pose_value = std::make_shared<cito::DynamicData>(pose);
+    auto pose_value = std::make_shared<citoq::DynamicData>(pose);
     pose_value->set("x", 1.0);
     pose_value->set("y", 2.0);
 
-    auto coefficients = std::make_shared<cito::DynamicList>();
+    auto coefficients = std::make_shared<citoq::DynamicList>();
     coefficients->values = {1.0f, 2.0f};
 
-    auto tags = std::make_shared<cito::DynamicList>();
+    auto tags = std::make_shared<citoq::DynamicList>();
     tags->values = {std::string("a"), std::string("bb")};
 
-    cito::DynamicData source(telemetry);
+    citoq::DynamicData source(telemetry);
     source.set_value("pose", pose_value);
     source.set_value("coefficients", coefficients);
     source.set_value("tags", tags);
 
-    const auto bytes = cito::wire::encode(source);
-    auto decoded = cito::wire::decode(telemetry, bytes);
+    const auto bytes = citoq::wire::encode(source);
+    auto decoded = citoq::wire::decode(telemetry, bytes);
 
     const auto nested =
-        std::get<cito::DynamicStruct>(decoded.value("pose"));
+        std::get<citoq::DynamicStruct>(decoded.value("pose"));
     assert(nested->get<double>("x") == 1.0);
     assert(nested->get<double>("y") == 2.0);
 
     const auto decoded_coefficients =
-        std::get<cito::DynamicListPtr>(decoded.value("coefficients"));
+        std::get<citoq::DynamicListPtr>(decoded.value("coefficients"));
     assert(decoded_coefficients->values.size() == 2);
     assert(std::get<float>(decoded_coefficients->values[1]) == 2.0f);
 
     const auto decoded_tags =
-        std::get<cito::DynamicListPtr>(decoded.value("tags"));
+        std::get<citoq::DynamicListPtr>(decoded.value("tags"));
     assert(decoded_tags->values.size() == 2);
     assert(std::get<std::string>(decoded_tags->values[1]) == "bb");
 
     bool sequence_bound_failed = false;
-    auto too_many_tags = std::make_shared<cito::DynamicList>();
+    auto too_many_tags = std::make_shared<citoq::DynamicList>();
     too_many_tags->values = {
         std::string("a"),
         std::string("b"),
@@ -64,7 +64,7 @@ int main() {
     assert(sequence_bound_failed);
 
     bool array_extent_failed = false;
-    auto short_array = std::make_shared<cito::DynamicList>();
+    auto short_array = std::make_shared<citoq::DynamicList>();
     short_array->values = {1.0f};
     try {
         source.set_value("coefficients", short_array);

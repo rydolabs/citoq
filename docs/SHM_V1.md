@@ -1,4 +1,4 @@
-# Cito SHM v1 — Publisher-Owned Ring Prototype
+# CitoQ SHM v1 — Publisher-Owned Ring Prototype
 
 ## Goal
 
@@ -109,7 +109,7 @@ writer process
 
 Both readers must receive 100 samples with zero drops while using their own read-only SHM mappings.
 
-A second multi-process smoke uses the IDL-generated `Position` type. The writer uses the generated direct `StaticCodec<Position>`, places the resulting canonical Cito wire bytes in SHM, and two reader processes decode those bytes back into generated `Position` values. This proves that SHM is only a transport substitution; type identity and wire compatibility do not change.
+A second multi-process smoke uses the IDL-generated `Position` type. The writer uses the generated direct `StaticCodec<Position>`, places the resulting canonical CitoQ wire bytes in SHM, and two reader processes decode those bytes back into generated `Position` values. This proves that SHM is only a transport substitution; type identity and wire compatibility do not change.
 
 This test intentionally does not use network namespaces because SHM is a same-host transport.
 

@@ -1,10 +1,10 @@
-# Cito Python v1
+# CitoQ Python v1
 
 The Python binding sits on the C ABI rather than the C++ ABI and initially exposes the common type_id + resource + bytes boundary.
 
 Example:
 
-    ctx = cito.Context('acme')
+    ctx = citoq.Context('acme')
     sub = ctx.on(100, handler, 'drone_17')
     ctx.publish(100, b'hello', 'drone_17')
 
@@ -16,10 +16,10 @@ IDL-generated typed Python helpers are a later layer over the same runtime and w
 Generated IDL classes can now be used directly with the Python Context:
 
 ```python
-import cito
+import citoq
 from position import Position
 
-ctx = cito.Context("acme")
+ctx = citoq.Context("acme")
 sub = ctx.on(
     Position,
     handler,
@@ -33,7 +33,7 @@ ctx.publish(
     "drone_17")
 ```
 
-The binding derives the TypeId from the generated class, encodes with the canonical Cito wire codec, sends through the stable C ABI, and decodes the callback payload back into the generated class.
+The binding derives the TypeId from the generated class, encodes with the canonical CitoQ wire codec, sends through the stable C ABI, and decodes the callback payload back into the generated class.
 
 The raw compatibility surface remains available:
 

@@ -1,5 +1,5 @@
-#include <cito/cito.hpp>
-#include <cito/detail/embedded_host_runtime.hpp>
+#include <citoq/citoq.hpp>
+#include <citoq/detail/embedded_host_runtime.hpp>
 
 #include <array>
 #include <cassert>
@@ -18,7 +18,7 @@ struct RemotePong {
     std::uint8_t value{};
 };
 
-namespace cito {
+namespace citoq {
 
 template <>
 struct StaticType<RemotePing> {
@@ -103,28 +103,28 @@ struct StaticCodec<RemotePong> {
     }
 };
 
-} // namespace cito
+} // namespace citoq
 
 namespace {
 
-cito::detail::RequestKey
+citoq::detail::RequestKey
 request_key(
     std::string_view resource) {
     return {
-        cito::stable_name_id(
+        citoq::stable_name_id(
             "acme"),
-        cito::stable_name_id(
+        citoq::stable_name_id(
             resource),
-        cito::static_type_ref<
+        citoq::static_type_ref<
             RemotePing>()
             .type_id()};
 }
 
 void add_remote_routes(
-    cito::detail::EmbeddedHostRuntime&
+    citoq::detail::EmbeddedHostRuntime&
         runtime,
     std::span<
-        const cito::detail::RequestKey>
+        const citoq::detail::RequestKey>
         keys) {
     assert(
         runtime.host()
@@ -133,11 +133,11 @@ void add_remote_routes(
                 5001,
                 10000,
                 0) ==
-        cito::
+        citoq::
             CoordinatorLeaseObservation::
                 Added);
 
-    std::vector<cito::InterestKey>
+    std::vector<citoq::InterestKey>
         capabilities;
 
     capabilities.reserve(
@@ -145,7 +145,7 @@ void add_remote_routes(
 
     for (const auto& key : keys) {
         capabilities.push_back(
-            cito::detail::
+            citoq::detail::
                 request_handler_interest_key(
                     key));
     }
@@ -162,7 +162,7 @@ void add_remote_routes(
                 capabilities));
 
     const std::array<
-        cito::DestinationId,
+        citoq::DestinationId,
         1> destination{77};
 
     for (const auto& capability :
@@ -180,7 +180,7 @@ void add_remote_routes(
 } // namespace
 
 int main() {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     auto client =
         acquire_embedded_host_runtime();
@@ -215,13 +215,13 @@ int main() {
                 assert(requester == 0);
 
                 const auto ping =
-                    cito::StaticCodec<
+                    citoq::StaticCodec<
                         RemotePing>::
                         decode(
                             payload);
 
                 const auto bytes =
-                    cito::StaticCodec<
+                    citoq::StaticCodec<
                         RemotePong>::
                         encode(
                             RemotePong{
@@ -296,16 +296,16 @@ int main() {
 
     attach();
 
-    cito::Context requester(
+    citoq::Context requester(
         "acme");
 
-    cito::StaticCodec<
+    citoq::StaticCodec<
         RemotePing>::encodes = 0;
-    cito::StaticCodec<
+    citoq::StaticCodec<
         RemotePing>::decodes = 0;
-    cito::StaticCodec<
+    citoq::StaticCodec<
         RemotePong>::encodes = 0;
-    cito::StaticCodec<
+    citoq::StaticCodec<
         RemotePong>::decodes = 0;
 
     auto remote =
@@ -321,25 +321,25 @@ int main() {
             .value == 8);
     assert(session_sends == 1);
     assert(
-        cito::StaticCodec<
+        citoq::StaticCodec<
             RemotePing>::encodes ==
         1);
     assert(
-        cito::StaticCodec<
+        citoq::StaticCodec<
             RemotePing>::decodes ==
         1);
     assert(
-        cito::StaticCodec<
+        citoq::StaticCodec<
             RemotePong>::encodes ==
         1);
     assert(
-        cito::StaticCodec<
+        citoq::StaticCodec<
             RemotePong>::decodes ==
         1);
 
     // No exact remote route means no request serialization.
     const auto before_missing =
-        cito::StaticCodec<
+        citoq::StaticCodec<
             RemotePing>::encodes;
 
     auto missing =
@@ -352,10 +352,10 @@ int main() {
     assert(
         missing.result()
             .status() ==
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Unavailable);
     assert(
-        cito::StaticCodec<
+        citoq::StaticCodec<
             RemotePing>::encodes ==
         before_missing);
     assert(session_sends == 1);
@@ -367,7 +367,7 @@ int main() {
                 77));
 
     const auto before_no_session =
-        cito::StaticCodec<
+        citoq::StaticCodec<
             RemotePing>::encodes;
 
     auto no_session =
@@ -380,17 +380,17 @@ int main() {
     assert(
         no_session.result()
             .status() ==
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Unavailable);
     assert(
-        cito::StaticCodec<
+        citoq::StaticCodec<
             RemotePing>::encodes ==
         before_no_session);
 
     attach();
 
     // A same-process handler wins over a ready remote session.
-    cito::Context local_provider(
+    citoq::Context local_provider(
         "acme");
 
     auto local_handler =
@@ -444,7 +444,7 @@ int main() {
     assert(
         slow.result()
             .status() ==
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Cancelled);
     assert(
         client->request_network()
@@ -467,11 +467,11 @@ int main() {
     // Destroying a Context cancels only its outstanding remote requests and
     // leaves the shared runtime/session usable by other Contexts.
     std::optional<
-        cito::Request<RemotePong>>
+        citoq::Request<RemotePong>>
         outstanding;
 
     {
-        cito::Context temporary(
+        citoq::Context temporary(
             "acme");
 
         outstanding.emplace(
@@ -498,7 +498,7 @@ int main() {
     assert(
         outstanding->result()
             .status() ==
-        cito::RequestStatus::
+        citoq::RequestStatus::
             Cancelled);
     assert(
         client->request_network()

@@ -1,6 +1,6 @@
 #include "position.hpp"
-#include <cito/detail/shm_ring.hpp>
-#include <cito/static.hpp>
+#include <citoq/detail/shm_ring.hpp>
+#include <citoq/static.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -14,7 +14,7 @@ namespace {
 int writer(
     const std::string& name,
     std::uint64_t count) {
-    cito::detail::ShmRingWriter ring(
+    citoq::detail::ShmRingWriter ring(
         name,
         256,
         512,
@@ -35,7 +35,7 @@ int writer(
             acme::navigation::FrameKind::Map;
 
         const auto bytes =
-            cito::encode(value);
+            citoq::encode(value);
 
         ring.publish(
             bytes.data(),
@@ -58,7 +58,7 @@ int writer(
 int reader(
     const std::string& name,
     std::uint64_t expected) {
-    cito::detail::ShmRingReader ring(
+    citoq::detail::ShmRingReader ring(
         name);
 
     std::vector<std::uint8_t> bytes;
@@ -82,7 +82,7 @@ int reader(
         }
 
         const auto value =
-            cito::decode<
+            citoq::decode<
                 acme::navigation::Position>(
                     bytes);
 

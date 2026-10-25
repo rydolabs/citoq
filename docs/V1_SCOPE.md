@@ -1,11 +1,11 @@
-# Cito v1 Scope
+# CitoQ v1 Scope
 
 ## Product target
 
-Cito v1 targets deployments up to **200 hosts** while preserving the simple application model:
+CitoQ v1 targets deployments up to **200 hosts** while preserving the simple application model:
 
 ```cpp
-cito::Context ctx;
+citoq::Context ctx;
 ctx.on<Position>(handler);
 ctx.publish(position);
 ctx.run();
@@ -40,7 +40,7 @@ Current foundation:
 - raw `type_id + resource + bytes` publish/subscribe
 - Python `ctypes` binding over that ABI
 
-v1 completion requires the C ABI/Python Context to use the same distributed runtime underneath as C++ and a generated typed Python IDL path that produces/consumes the canonical Cito wire.
+v1 completion requires the C ABI/Python Context to use the same distributed runtime underneath as C++ and a generated typed Python IDL path that produces/consumes the canonical CitoQ wire.
 
 ## QUIC policy
 
@@ -54,9 +54,9 @@ secure remote BestEffort     -> QUIC DATAGRAM
 secure remote Reliable       -> QUIC stream
 ```
 
-MsQuic is the first backend. A real Linux namespace smoke already validates one Cito packet over both a reliable stream and a QUIC DATAGRAM.
+MsQuic is the first backend. A real Linux namespace smoke already validates one CitoQ packet over both a reliable stream and a QUIC DATAGRAM.
 
-MsQuic callbacks are transport-completion callbacks only. Cito's mutable discovery/routing/runtime state remains owned by the Cito event loop.
+MsQuic callbacks are transport-completion callbacks only. CitoQ's mutable discovery/routing/runtime state remains owned by the CitoQ event loop.
 
 v1 completion requires this backend to be selected through the normal distributed Context transport path rather than only through the standalone integration smoke.
 
@@ -189,13 +189,13 @@ layers.
 ## C ABI remote Request/Reply correlation
 
 The stable C ABI now shares the RequestNetworkAdapter path used by C++
-Request/Reply. `cito_context_has_handler` reports an exact local handler or a
-ready discovered remote handler session; `cito_context_request` is
+Request/Reply. `citoq_context_has_handler` reports an exact local handler or a
+ready discovered remote handler session; `citoq_context_request` is
 local-first and otherwise uses CTX1 remote correlation.
 
 Remote inbound requests allocate a process-local handler RequestId rather than
 exposing the peer's wire RequestId. This allows C and Python handlers to call
-`cito_context_reply` safely when multiple peers reuse the same wire
+`citoq_context_reply` safely when multiple peers reuse the same wire
 correlation value. Cancel, peer loss, handler-app teardown, explicit request
 destruction, and raw C Context destruction all clean up the corresponding
 local/transport state. Raw C Context destruction preserves the existing rule
@@ -217,7 +217,7 @@ MsQuic session objects remain the next concrete attachment layer.
 
 ## Concrete MsQuic Request/Reply session attachment
 
-The optional `cito_msquic` transport now contains a reusable
+The optional `citoq_msquic` transport now contains a reusable
 `MsQuicRequestSessionManager`. It consumes RequestSessionLifecycleCore
 Connect/Disconnect actions, owns concrete MsQuic connections/streams, and
 attaches ready DestinationIds to RequestNetworkAdapter.

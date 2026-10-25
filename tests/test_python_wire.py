@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import IntEnum
 
-from cito import _wire
+from citoq import _wire
 
 
 class FrameKind(IntEnum):

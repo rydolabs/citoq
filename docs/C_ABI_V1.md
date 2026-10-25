@@ -1,6 +1,6 @@
-# Cito C ABI v1
+# CitoQ C ABI v1
 
-Cito exposes a stable C boundary for language bindings and non-C++ applications.
+CitoQ exposes a stable C boundary for language bindings and non-C++ applications.
 
 The v1 boundary is Context + type_id + resource + bytes. It does not expose STL types, C++ exceptions, RTTI, templates, or C++ object layouts.
 

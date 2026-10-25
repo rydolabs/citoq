@@ -1,13 +1,13 @@
-# Cito Runtime Model v1 — Single Loop + Bounded Workers
+# CitoQ Runtime Model v1 — Single Loop + Bounded Workers
 
 ## Goal
 
-Keep the common path fast and predictable without exposing threading concepts in the normal Cito API.
+Keep the common path fast and predictable without exposing threading concepts in the normal CitoQ API.
 
 Applications continue to use:
 
 ```cpp
-cito::Context ctx;
+citoq::Context ctx;
 ctx.on<Position>(handler);
 ctx.publish(position);
 ctx.run();
@@ -61,7 +61,7 @@ Unit tests verify:
 
 Smoke tests verify the complete loop -> worker -> loop completion path.
 
-The runtime prototype is still internal under `cito/detail`. It is intentionally not yet exposed through the public API while `Context::run()` semantics are being stabilized.
+The runtime prototype is still internal under `citoq/detail`. It is intentionally not yet exposed through the public API while `Context::run()` semantics are being stabilized.
 
 
 ## BestEffort locality fast path
@@ -78,6 +78,6 @@ matching targets
      +-- remote ------/                         \----> UDP
 ```
 
-SHM and UDP currently share the same canonical Cito wire representation, so a mixed fan-out does not need one serialization per transport or destination. If a future transport requires a genuinely different representation, each required representation may be produced at most once per publish.
+SHM and UDP currently share the same canonical CitoQ wire representation, so a mixed fan-out does not need one serialization per transport or destination. If a future transport requires a genuinely different representation, each required representation may be produced at most once per publish.
 
 This is internal runtime policy; it does not add transport parameters to `Context::publish()`.

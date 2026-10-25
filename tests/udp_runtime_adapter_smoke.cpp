@@ -1,4 +1,4 @@
-#include <cito/detail/udp_runtime_adapter.hpp>
+#include <citoq/detail/udp_runtime_adapter.hpp>
 
 #include <array>
 #include <cassert>
@@ -8,11 +8,11 @@
 namespace {
 
 void exchange(
-    cito::detail::UdpRuntimeAdapter& receiver,
-    const cito::detail::UdpEndpoint& receiver_address,
-    cito::detail::UdpRuntimeAdapter& sender,
-    const cito::detail::UdpEndpoint& sender_address,
-    std::vector<cito::detail::UdpSend> sends,
+    citoq::detail::UdpRuntimeAdapter& receiver,
+    const citoq::detail::UdpEndpoint& receiver_address,
+    citoq::detail::UdpRuntimeAdapter& sender,
+    const citoq::detail::UdpEndpoint& sender_address,
+    std::vector<citoq::detail::UdpSend> sends,
     std::uint64_t now_ms) {
     for (const auto& send : sends) {
         assert(
@@ -53,15 +53,15 @@ void exchange(
 } // namespace
 
 int main() {
-    const cito::InterestKey position{
+    const citoq::InterestKey position{
         7, 17, 100};
-    const cito::InterestKey battery{
+    const citoq::InterestKey battery{
         7, 17, 200};
 
     std::size_t pos_received = 0;
     std::size_t bat_received = 0;
 
-    cito::detail::HostRuntimeCore
+    citoq::detail::HostRuntimeCore
         pos_host;
     pos_host.register_app(
         1,
@@ -78,7 +78,7 @@ int main() {
         1,
         position);
 
-    cito::detail::HostRuntimeCore
+    citoq::detail::HostRuntimeCore
         bat_host;
     bat_host.register_app(
         2,
@@ -93,46 +93,46 @@ int main() {
         2,
         battery);
 
-    cito::detail::HostRuntimeCore
+    citoq::detail::HostRuntimeCore
         pub_host;
 
-    cito::detail::UdpRuntimeAdapter
+    citoq::detail::UdpRuntimeAdapter
         pos_udp(
             pos_host,
             11,
             11001);
-    cito::detail::UdpRuntimeAdapter
+    citoq::detail::UdpRuntimeAdapter
         bat_udp(
             bat_host,
             12,
             12001);
-    cito::detail::UdpRuntimeAdapter
+    citoq::detail::UdpRuntimeAdapter
         pub_udp(
             pub_host,
             20,
             20001);
 
-    const cito::detail::UdpEndpoint
+    const citoq::detail::UdpEndpoint
         pub_control{
             0x0a000001u,
             47120};
-    const cito::detail::UdpEndpoint
+    const citoq::detail::UdpEndpoint
         pos_control{
             0x0a000002u,
             47111};
-    const cito::detail::UdpEndpoint
+    const citoq::detail::UdpEndpoint
         bat_control{
             0x0a000003u,
             47112};
 
     pos_udp.set_local_route_endpoints(
         std::array<
-            cito::RouteEndpoint,
+            citoq::RouteEndpoint,
             1>{{{111, 48111}}});
 
     bat_udp.set_local_route_endpoints(
         std::array<
-            cito::RouteEndpoint,
+            citoq::RouteEndpoint,
             1>{{{112, 48112}}});
 
     exchange(
@@ -231,7 +231,7 @@ int main() {
     assert(bat_received == 0);
 
     // A completely unrelated publish does zero framing/network work.
-    const cito::InterestKey unrelated{
+    const citoq::InterestKey unrelated{
         7, 18, 100};
 
     const auto none =

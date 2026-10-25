@@ -1,4 +1,4 @@
-#include <cito/detail/posix_udp_control_manager.hpp>
+#include <citoq/detail/posix_udp_control_manager.hpp>
 
 #include <arpa/inet.h>
 #include <cerrno>
@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace cito::detail {
+namespace citoq::detail {
 
 class PosixUdpControlManager::Impl {
 public:
@@ -522,4 +522,4 @@ PosixUdpControlManager::stats()
             : empty;
 }
 
-} // namespace cito::detail
+} // namespace citoq::detail

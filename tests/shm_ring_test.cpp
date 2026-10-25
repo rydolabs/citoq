@@ -1,4 +1,4 @@
-#include <cito/detail/shm_ring.hpp>
+#include <citoq/detail/shm_ring.hpp>
 
 #include <cassert>
 #include <cstdint>
@@ -8,18 +8,18 @@
 
 int main() {
     const std::string name =
-        "/cito-shm-unit-" +
+        "/citoq-shm-unit-" +
         std::to_string(::getpid());
 
-    cito::detail::ShmRingWriter writer(
+    citoq::detail::ShmRingWriter writer(
         name,
         4,
         64,
         77);
 
-    cito::detail::ShmRingReader first(
+    citoq::detail::ShmRingReader first(
         name);
-    cito::detail::ShmRingReader slow(
+    citoq::detail::ShmRingReader slow(
         name);
 
     assert(

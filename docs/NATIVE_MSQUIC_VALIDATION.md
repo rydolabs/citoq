@@ -1,12 +1,12 @@
-# Cito native MsQuic verification scope (2026-10-17)
+# CitoQ native MsQuic verification scope (2026-10-17)
 
 This document records **actual GitHub Actions runner evidence**, not a claim
 that the latest cumulative local v23 product source is integrated or shipped.
 
 ## Proven by native Ubuntu 24.04 + MsQuic 2.6.1
 
-Workflow: `.github/workflows/cito-quic.yml` on
-`cito-v23-native-headers`.
+Workflow: `.github/workflows/citoq-quic.yml` on
+`citoq-v23-native-headers`.
 
 - Download and install pinned libmsquic 2.6.1 and matching headers.
 - Compile and link an `MsQuicOpen2` / `MsQuicClose` probe.
@@ -32,14 +32,14 @@ https://github.com/nssang00/chatgpt-write-test/actions/runs/39034786797
 
 - Native QUIC server requires a CA-validated client X.509 certificate.
   Authorized client passes; absent certificate is rejected at the **TLS**
-  layer before Cito's admission hooks.
+  layer before CitoQ's admission hooks.
 - `RequestMsQuicServerAdmission::AuthorizeIdentity` is an optional
   owner-loop gate for a **bounded (16 KiB) DER copy** of the peer leaf
   certificate, provided by MsQuic's `PEER_CERTIFICATE_RECEIVED` callback
   with `USE_PORTABLE_CERTIFICATES`.
 - The native identity test uses exact DER allowlisting: **two different
   leaf certificates signed by the same CA** are treated differently.
-  The configured leaf is allowed; the other is rejected at the Cito
+  The configured leaf is allowed; the other is rejected at the CitoQ
   authorization gate. An allowed CA is NOT equivalent to an allowed node.
 - Legacy GitHub `MsQuicRequestSessionOptions` now supports
   `client_certificate_file`, `client_private_key_file`,
@@ -51,7 +51,7 @@ https://github.com/nssang00/chatgpt-write-test/actions/runs/39034786797
 - **Scope:** The exact DER allowlist is a small acceptance-test policy,
   not a complete credential lifecycle. The public legacy Context driver
   enforces client CA verification but has **not** yet been refactored to
-  pass the certificate identity to a Cito DestinationId/topic ACL.
+  pass the certificate identity to a CitoQ DestinationId/topic ACL.
   The latest cumulative local v23 core has not been fully moved to
   this GitHub branch.
 
@@ -60,7 +60,7 @@ https://github.com/nssang00/chatgpt-write-test/actions/runs/39034786797
 - A verified **server** certificate does not authenticate the **client**.
   The v23 admission smoke has test-only callbacks `Authorize` = permit/reject.
   Production requires client identity verification (mTLS, tokens with
-  binding, or equivalent), Cito node ID mapping and authorization policy.
+  binding, or equivalent), CitoQ node ID mapping and authorization policy.
 - The legacy `MsQuicRequestSessionOptions` now optionally accepts a
   `ca_certificate_file`. Conflicting `ca_certificate_file` and
   `skip_server_certificate_validation` options fail closed.
@@ -73,7 +73,7 @@ https://github.com/nssang00/chatgpt-write-test/actions/runs/39034786797
   expiration and deduplication; transport send completion is insufficient.
 - Unit tests and a subset of native headers are from the local cumulative
   v23 archive, but most code in the current GitHub branch still comes from
-  the *older* `cito-dev` tree. The entire v23 source has **not** been merged
+  the *older* `citoq-dev` tree. The entire v23 source has **not** been merged
   or completely revalidated in Actions.
 - This test uses ephemeral development certificates only. There is no
   provisioning, renewal or key revocation system.
@@ -83,7 +83,7 @@ https://github.com/nssang00/chatgpt-write-test/actions/runs/39034786797
 1. Sync **all** cumulative v23 source into a new GitHub test branch, then
    run its full native build, CTest and sanitizers.
 2. Integrate the accepted v23 server streams and QUIC datagrams with the
-   **public** Cito `Context` publish/subscribe and request/reply APIs.
+   **public** CitoQ `Context` publish/subscribe and request/reply APIs.
 3. Authenticate and authorize peer identity before admitting streams;
    require explicit on-wire application response where commands must
    confirm execution.
@@ -93,4 +93,4 @@ https://github.com/nssang00/chatgpt-write-test/actions/runs/39034786797
    no manual SDK installation for end users.
 6. Only then expand to Protobuf, ROS 2, PX4/SITL, QoS and performance comparison.
 
-GitHub CI: https://github.com/nssang00/chatgpt-write-test/actions/workflows/cito-quic.yml
+GitHub CI: https://github.com/nssang00/chatgpt-write-test/actions/workflows/citoq-quic.yml

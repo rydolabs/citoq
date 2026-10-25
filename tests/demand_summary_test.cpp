@@ -1,13 +1,13 @@
-#include <cito/demand_summary.hpp>
+#include <citoq/demand_summary.hpp>
 
 #include <array>
 #include <cassert>
 #include <stdexcept>
 
 int main() {
-    cito::RemoteSummaryTracker tracker;
+    citoq::RemoteSummaryTracker tracker;
 
-    const cito::DemandSummaryStamp v2{
+    const citoq::DemandSummaryStamp v2{
         100,
         2,
         2};
@@ -16,7 +16,7 @@ int main() {
     assert(tracker.mark_applied(7, v2));
     assert(!tracker.needs_snapshot(7, v2));
 
-    const cito::DemandSummaryStamp stale{
+    const citoq::DemandSummaryStamp stale{
         100,
         1,
         2};
@@ -24,13 +24,13 @@ int main() {
     assert(!tracker.needs_snapshot(7, stale));
     assert(!tracker.mark_applied(7, stale));
 
-    const cito::DemandSummaryStamp v3{
+    const citoq::DemandSummaryStamp v3{
         100,
         3,
         1};
     assert(tracker.needs_snapshot(7, v3));
 
-    const cito::DemandSummaryStamp restarted{
+    const citoq::DemandSummaryStamp restarted{
         101,
         0,
         0};
@@ -43,16 +43,16 @@ int main() {
     // cause a snapshot-pull storm after restart.
     assert(!tracker.needs_snapshot(7, v3));
 
-    const cito::InterestKey position{
+    const citoq::InterestKey position{
         1,
         10,
         100};
-    const cito::InterestKey battery{
+    const citoq::InterestKey battery{
         1,
         10,
         200};
 
-    cito::RemoteDemandIndex index;
+    citoq::RemoteDemandIndex index;
 
     std::array keys1{
         position,

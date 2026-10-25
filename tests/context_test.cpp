@@ -1,4 +1,4 @@
-#include <cito/cito.hpp>
+#include <citoq/citoq.hpp>
 
 #include <cassert>
 #include <string>
@@ -13,7 +13,7 @@ struct Battery {
 };
 
 int main() {
-    cito::Context ctx;
+    citoq::Context ctx;
 
     int position_calls = 0;
     auto pos_sub = ctx.on<Position>([&](const Position& p) {
@@ -38,7 +38,7 @@ int main() {
     resource_sub.close();
     assert(ctx.publish("drone_17", Position{3.0, 4.0}) == 0);
 
-    cito::Context scoped("acme.robotics");
+    citoq::Context scoped("acme.robotics");
     assert(scoped.scope() == "acme.robotics");
 
     return 0;

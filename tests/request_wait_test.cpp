@@ -1,4 +1,4 @@
-#include <cito/detail/request_network_adapter.hpp>
+#include <citoq/detail/request_network_adapter.hpp>
 
 #include <array>
 #include <cassert>
@@ -10,16 +10,16 @@
 namespace {
 
 using Clock =
-    cito::detail::
+    citoq::detail::
         RequestNetworkAdapter::Clock;
 
 void add_route(
-    cito::detail::HostRuntimeCore& host,
-    const cito::detail::RequestKey& key,
-    cito::DestinationId destination,
+    citoq::detail::HostRuntimeCore& host,
+    const citoq::detail::RequestKey& key,
+    citoq::DestinationId destination,
     std::uint64_t version) {
     const auto capability =
-        cito::detail::
+        citoq::detail::
             request_handler_interest_key(
                 key);
 
@@ -32,13 +32,13 @@ void add_route(
                 5001,
                 10000,
                 0) ==
-            cito::
+            citoq::
                 CoordinatorLeaseObservation::
                     Added);
     }
 
     const std::array<
-        cito::InterestKey,
+        citoq::InterestKey,
         1> keys{capability};
 
     assert(
@@ -48,7 +48,7 @@ void add_route(
             keys));
 
     const std::array<
-        cito::DestinationId,
+        citoq::DestinationId,
         1> destinations{
             destination};
 
@@ -63,7 +63,7 @@ void add_route(
 } // namespace
 
 int main() {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     const RequestKey fast{
         7,

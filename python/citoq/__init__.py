@@ -1,11 +1,49 @@
-"""CitoQ import facade over the existing native Cito Python binding.
+from . import _wire
 
-The native shared library must be installed or exposed using CITO_LIBRARY.
-"""
-import cito as _legacy
-__all__ = list(_legacy.__all__)
+__all__ = [
+    "Context",
+    "Subscription",
+    "HandlerRegistration",
+    "RequestError",
+    "Cancelled",
+    "Unavailable",
+    "DeadlineExceeded",
+    "abi_version",
+]
 
-def __getattr__(name):
-    if name in __all__:
-        return getattr(_legacy, name)
-    raise AttributeError("module 'citoq' has no attribute " + repr(name))
+
+def __getattr__(name: str):
+    if name in {
+        "Context",
+        "Subscription",
+        "HandlerRegistration",
+        "RequestError",
+        "Cancelled",
+        "Unavailable",
+        "DeadlineExceeded",
+        "abi_version",
+    }:
+        from ._native import (
+            Context,
+            Subscription,
+            HandlerRegistration,
+            RequestError,
+            Cancelled,
+            Unavailable,
+            DeadlineExceeded,
+            abi_version,
+        )
+
+        globals().update({
+            "Context": Context,
+            "Subscription": Subscription,
+            "HandlerRegistration": HandlerRegistration,
+            "RequestError": RequestError,
+            "Cancelled": Cancelled,
+            "Unavailable": Unavailable,
+            "DeadlineExceeded": DeadlineExceeded,
+            "abi_version": abi_version,
+        })
+        return globals()[name]
+
+    raise AttributeError(name)

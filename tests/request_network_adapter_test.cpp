@@ -1,4 +1,4 @@
-#include <cito/detail/request_network_adapter.hpp>
+#include <citoq/detail/request_network_adapter.hpp>
 
 #include <array>
 #include <cassert>
@@ -7,7 +7,7 @@
 #include <vector>
 
 int main() {
-    using namespace cito::detail;
+    using namespace citoq::detail;
 
     const RequestKey fast{
         7,
@@ -37,12 +37,12 @@ int main() {
             5001,
             10000,
             0) ==
-        cito::
+        citoq::
             CoordinatorLeaseObservation::
                 Added);
 
     const std::array<
-        cito::InterestKey,
+        citoq::InterestKey,
         2> capabilities{
             request_handler_interest_key(
                 fast),
@@ -56,7 +56,7 @@ int main() {
             capabilities));
 
     const std::array<
-        cito::DestinationId,
+        citoq::DestinationId,
         2> destinations{
             88,
             77};
@@ -140,7 +140,7 @@ int main() {
         client.ready_destination(
             fast) ==
         std::optional<
-            cito::DestinationId>(
+            citoq::DestinationId>(
                 88));
 
     const std::array<
@@ -202,7 +202,7 @@ int main() {
         client.ready_destination(
             fast) ==
         std::optional<
-            cito::DestinationId>(
+            citoq::DestinationId>(
                 77));
 
     auto second =
@@ -231,7 +231,7 @@ int main() {
         client.ready_destination(
             fast) ==
         std::optional<
-            cito::DestinationId>(
+            citoq::DestinationId>(
                 88));
 
     // A ready route with a session whose send fails completes Unavailable
