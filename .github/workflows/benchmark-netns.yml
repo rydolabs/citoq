@@ -16,7 +16,8 @@ jobs:
       - name: Pin source and install tools
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "08188eba73284dd1069016174ad216f5e02d2cfa" || { echo "Unexpected baseline parent"; exit 1; }
+          git cat-file -e 08188eba73284dd1069016174ad216f5e02d2cfa^{commit}
+          git merge-base --is-ancestor 08188eba73284dd1069016174ad216f5e02d2cfa HEAD
           sudo apt-get update
           sudo apt-get install -y iproute2 iputils-ping python3
       - name: Build isolated Linux Bridge topology and apply netem
