@@ -20,7 +20,21 @@ Two independent runs per engine and network profile; 256-byte messages, 200 sequ
 | **Fast DDS** native C++, RELIABLE, UDPv4-only | 0.605 / 0.565 | 12.170 / **2,591.250** | 107,107 |
 | **gRPC + Protocol Buffers** | **Not measured** | **Not measured** | **Not measured** |
 
-The Fast DDS impaired-profile outlier (**2.59 s p95**) is retained, not discarded. These numbers are **not apples-to-apples**: encryption, reliability/transport, Python vs C++ bindings, serialization and internal polling differ. They must **not** be interpreted as intrinsic protocol latency or a vendor performance ranking. CitoQ's public mTLS/QUIC path in this experiment is substantially slower than the other tested stacks in the unshaped profile; its experimental internal UDP path is **not** a substitute for these product measurements. The two repetitions are insufficient for robust p99 or production performance claims.
+The Fast DDS impaired-profile outlier (**2.59 s p95**) is retained, not discarded. These numbers are **not apples-to-apples**: encryption, reliability/transport, Python vs C++ bindings, serialization and internal polling differ. They must **not** be interpreted as intrinsic protocol latency or a vendor performance ranking. **The original CitoQ row is affected by a known polling-order measurement artifact**: the sender called `transport.poll()` *before* `Context.publish_raw()` and then waited until the next 100 Hz publication. The resulting queued QUIC send waited approximately 10 ms. It is not intrinsic MsQuic or CitoQ network latency. Its experimental internal UDP path is **not** a substitute for public API measurements. The two repetitions are insufficient for robust p99 or production performance claims.
+
+
+
+**CitoQ publish/poll A/B diagnosis (same pinned product binaries, unshaped profile):** Re-running the public Python `Context` + native mTLS/QUIC stack with `transport.poll()` *immediately after publish* isolated the extra delay. All **12/12** 50/100/200 Hz A/B runs were valid and delivered 200/200 samples. Median of two run-level p95 latency measurements:
+
+| Publish rate | Original poll-before-publish p95 | Poll-immediately-after-publish p95 |
+| --- | ---: | ---: |
+| 50 Hz (20 ms period) | 20.735 ms | **0.808 ms** |
+| 100 Hz (10 ms period) | 10.693 ms | **0.771 ms** |
+| 200 Hz (5 ms period) | 5.636 ms | **0.724 ms** |
+
+This nearly one-to-one dependency of the old p95 on publication period identifies **sender-side deferred queue processing** as the dominant cause of the 10.7 ms figure. These are application-to-application latencies for this polling-based integration, **not** isolated wire/QUIC latency or production p99. The prior values are retained above for reproducibility, not for product-speed claims.
+
+**Diagnostic proof:** [12/12 passing Actions frequency sweep](https://github.com/rydolabs/citoq/actions/runs/40346709680) · [raw evidence](https://github.com/rydolabs/citoq/actions/runs/40346709680/artifacts/12662790542) · [benchmark-only source change](https://github.com/rydolabs/citoq/compare/cc984d241832de0060d362a7dc52850e260052c6...30cdadb17752acde8ffc29796a09ba02a082991a). The unchanged CitoQ source pin remains `08188eba`. An earlier netem ablation observed improved latency but had one failed loss-profile run; its [logs are preserved](https://github.com/rydolabs/citoq/actions/runs/40345956590). No loss-profile reliability claim is made from that failed run.
 
 **Reproducible evidence:** [successful public-API workflow](https://github.com/rydolabs/citoq/actions/runs/40242491625) · [raw per-process logs, CSV and JSON](https://github.com/rydolabs/citoq/actions/runs/40242491625/artifacts/12617496490) · [full methodology and limitations](https://github.com/rydolabs/citoq/blob/1d0a6d53fce13a50121ca35c7a377ebd3bbac309/docs/BENCHMARK_RESULTS_2026-10-26.md).
 
