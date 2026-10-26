@@ -64,23 +64,18 @@ jobs:
           openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 1 -extfile client.ext >/dev/null 2>&1
           openssl verify -CAfile ca.pem -verify_ip 10.217.0.2 server.pem
           openssl verify -CAfile ca.pem -purpose sslclient client.pem
-      - name: A-B test poll-before vs poll-after with identical pinned CitoQ
+      - name: A-B 50 100 200 Hz unshaped sweep on identical pinned CitoQ
         shell: bash
         run: |
           set -euo pipefail
-          for mode in pre post; do
-            if [ "$mode" = post ]; then export CITOQ_POLL_AFTER_SEND=1; else export CITOQ_POLL_AFTER_SEND=0; fi
-            export CITOQ_BENCH_RUN_LABEL="${mode}-100hz"
-            python3 benchmark/run_comparison.py --python "$GITHUB_WORKSPACE/.venv/bin/python" \
-              --engines citoq --count 200 --payload 256 --rate 100 --repeats 3 \
-              --profiles baseline,netem_10ms_1pct
-          done
-          unset CITOQ_POLL_AFTER_SEND
-          for rate in 50 200; do
-            export CITOQ_BENCH_RUN_LABEL="pre-${rate}hz"
-            python3 benchmark/run_comparison.py --python "$GITHUB_WORKSPACE/.venv/bin/python" \
-              --engines citoq --count 200 --payload 256 --rate "$rate" --repeats 2 \
-              --profiles baseline
+          for rate in 50 100 200; do
+            for mode in pre post; do
+              if [ "$mode" = post ]; then export CITOQ_POLL_AFTER_SEND=1; else export CITOQ_POLL_AFTER_SEND=0; fi
+              export CITOQ_BENCH_RUN_LABEL="${mode}-${rate}hz"
+              python3 benchmark/run_comparison.py --python "$GITHUB_WORKSPACE/.venv/bin/python" \
+                --engines citoq --count 200 --payload 256 --rate "$rate" --repeats 2 \
+                --profiles baseline
+            done
           done
       - name: Summarize all measured A-B cases
         if: always()
