@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Separate-namespace benchmark orchestrator; raw logs + CSV always retained."""
 import argparse,csv,json,os,pathlib,shlex,subprocess,sys,time
-ROOT=pathlib.Path(__file__).resolve().parents[1]; OUT=ROOT/"benchmark-evidence"
+ROOT=pathlib.Path(__file__).resolve().parents[1]; OUT=ROOT/"benchmark-evidence"/os.environ.get("CITOQ_BENCH_RUN_LABEL","")
 NAMES=("citoq","cyclonedds","zenoh")
 NS=("citoq-ba","citoq-bb")
 def cmd(*parts,check=True):
@@ -45,6 +45,7 @@ def launch(engine,role,py,count,payload,rate,result):
               "--cert",str(ROOT/"benchmark-certs/server.pem"),"--key",str(ROOT/"benchmark-certs/server.key"),
               "--client-cert",str(ROOT/"benchmark-certs/client.pem"),"--client-key",str(ROOT/"benchmark-certs/client.key"),
               "--result",str(result)]
+    if engine=="citoq" and os.environ.get("CITOQ_POLL_AFTER_SEND")=="1": args.append("--post-publish-poll")
     command=["sudo","ip","netns","exec",ns,"env"]+[f"{k}={v}" for k,v in env.items()]+args
     return subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
 def bench(engine,profile,rep,py,count,payload,rate):
@@ -64,7 +65,7 @@ def bench(engine,profile,rep,py,count,payload,rate):
     (OUT/(pref+"-receiver.log")).write_text(receiver_out)
     try: summary=json.loads(result.read_text())
     except Exception as exc: summary={"error":"result unavailable: "+str(exc)}
-    summary.update(engine=engine,profile=profile,repetition=rep,sender_exit=sender.returncode,
+    summary.update(engine=engine,profile=profile,repetition=rep,citoq_poll_after_send=(engine=="citoq" and os.environ.get("CITOQ_POLL_AFTER_SEND")=="1"),sender_exit=sender.returncode,
                    receiver_exit=receiver.returncode,
                    bridge_rx_delta=sum(after[k]-before[k] for k in after if k.endswith("_rx")),
                    bridge_tx_delta=sum(after[k]-before[k] for k in after if k.endswith("_tx")))
@@ -85,6 +86,7 @@ def main():
     ver={"source_sha":"08188eba73284dd1069016174ad216f5e02d2cfa",
          "harness_sha":cmd("git","rev-parse","HEAD").stdout.strip(),
          "kernel":cmd("uname","-r").stdout.strip(),
+         "poll_after_send":os.environ.get("CITOQ_POLL_AFTER_SEND","0"),
          "fastdds":cmd("dpkg-query","-W","libfastrtps-dev",check=False).stdout.strip(),
          "fastddsgen":cmd("dpkg-query","-W","fastddsgen",check=False).stdout.strip()}
     (OUT/"versions.json").write_text(json.dumps(ver,indent=2)+"\n")

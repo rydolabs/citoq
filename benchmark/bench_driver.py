@@ -221,6 +221,8 @@ def paced_send(args, fn, service=None, wait_for_match=False):
             if not wait_for_match or time.monotonic()>deadline:
                 raise RuntimeError("no eligible subscribers for sample "+str(n))
             time.sleep(.005)
+        if args.post_publish_poll and service:
+            service()  # Ablation: flush queued MsQuic send during the same publication iteration.
         next_ns+=interval
         delay=(next_ns-now_ns())/1e9
         if delay>0: time.sleep(delay)
@@ -242,6 +244,7 @@ def main():
     ap.add_argument("--payload",type=int,default=256)
     ap.add_argument("--rate",type=float,default=100)
     ap.add_argument("--timeout",type=float,default=16)
+    ap.add_argument("--post-publish-poll",action="store_true",help="CitoQ queue flush ablation; default preserves original benchmark")
     ap.add_argument("--ca")
     ap.add_argument("--cert")
     ap.add_argument("--key")
