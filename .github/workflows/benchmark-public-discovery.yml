@@ -56,12 +56,14 @@ jobs:
           cd benchmark-certs
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout ca.key -out ca.pem -subj '/CN=CitoQ Benchmark Root' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
           openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj '/CN=10.202.0.12' >/dev/null 2>&1
-          printf '%s\n' 'subjectAltName=IP:10.217.0.2' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature,keyEncipherment' 'extendedKeyUsage=serverAuth' > server.ext
+          sans="IP:10.202.0.12"
+          for i in $(seq 13 41); do sans="$sans,IP:10.202.0.$i"; done
+          printf '%s\n' "subjectAltName=$sans" 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature,keyEncipherment' 'extendedKeyUsage=serverAuth' > server.ext
           openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 1 -extfile server.ext >/dev/null 2>&1
           openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj '/CN=CitoQ Benchmark Client' >/dev/null 2>&1
           printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' 'extendedKeyUsage=clientAuth' > client.ext
           openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 1 -extfile client.ext >/dev/null 2>&1
-          openssl verify -CAfile ca.pem -verify_ip 10.217.0.2 server.pem
+          openssl verify -CAfile ca.pem -verify_ip 10.202.0.12 server.pem
           openssl verify -CAfile ca.pem -purpose sslclient client.pem
 
       - name: Public Context multi-node discovery and one-to-many data

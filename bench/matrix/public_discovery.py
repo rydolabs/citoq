@@ -59,7 +59,7 @@ def main():
    txt=(a.output/f"node-{i:03d}-{role}.log").read_text(errors="replace")
    found=re.findall(r"NODE_RESULT=(\{[^\n]+\})",txt)
    result=json.loads(found[-1]) if found else {}
-   rows.append(dict(index=i,role=role,exit=h.returncode,**result))
+   rows.append(dict(**result,index=i,role=role,exit=h.returncode))
   metrics=dict(nodes=a.nodes,all_processes=len(handles)==a.nodes and all(x["exit"]==0 for x in rows),
       ready_ms=next((x.get("ready_ms") for x in rows if x["role"]=="publisher"),None),
       matched=next((x.get("matched") for x in rows if x["role"]=="publisher"),None),
