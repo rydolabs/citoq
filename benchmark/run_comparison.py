@@ -34,7 +34,7 @@ def set_profile(profile):
 def bytes_total():
     return {f"{name}_{direction}":int(pathlib.Path(f"/sys/class/net/{name}/statistics/{direction}_bytes").read_text())
             for name in ("citoq-pa","citoq-pb") for direction in ("rx","tx")}
-def launch(engine,role,py,count,payload,rate,result,poll_mode):
+def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us):
     ns=NS[0] if role=="sender" else NS[1]
     library_dir=pathlib.Path(os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark"))).resolve()
     env={"PYTHONPATH":str(ROOT/"python"),"CITOQ_LIBRARY":str(library_dir/"libcitoq.so"),"CITOQ_NATIVE_LIBRARY":str(library_dir/"libcitoq_native.so")}
@@ -47,18 +47,18 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode):
               "--client-cert",str(ROOT/"benchmark-certs/client.pem"),"--client-key",str(ROOT/"benchmark-certs/client.key"),
               "--result",str(result)]
         if engine=="citoq":
-            args += ["--citoq-poll-mode",poll_mode]
+            args += ["--citoq-poll-mode",poll_mode,"--citoq-rx-sleep-us",str(rx_sleep_us)]
     if os.environ.get("CITOQ_BENCH_RESOURCES")=="1":
         args=["/usr/bin/time","-f","user_s=%U system_s=%S max_rss_kb=%M",
               "-o",str(result)+".resource"]+args
     command=["sudo","ip","netns","exec",ns,"env"]+[f"{k}={v}" for k,v in env.items()]+args
     return subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
-def bench(engine,profile,rep,py,count,payload,rate,poll_mode):
+def bench(engine,profile,rep,py,count,payload,rate,poll_mode,rx_sleep_us):
     pref=f"{profile}-{engine}-r{rep}"; result=OUT/(pref+".json")
     before=bytes_total()
-    receiver=launch(engine,"receiver",py,count,payload,rate,result,poll_mode)
+    receiver=launch(engine,"receiver",py,count,payload,rate,result,poll_mode,rx_sleep_us)
     time.sleep(2.5)
-    sender=launch(engine,"sender",py,count,payload,rate,OUT/(pref+"-sender.json"),poll_mode)
+    sender=launch(engine,"sender",py,count,payload,rate,OUT/(pref+"-sender.json"),poll_mode,rx_sleep_us)
     try: sender_out,_=sender.communicate(timeout=30)
     except subprocess.TimeoutExpired:
         sender.kill(); sender_out,_=sender.communicate()
@@ -70,7 +70,8 @@ def bench(engine,profile,rep,py,count,payload,rate,poll_mode):
     (OUT/(pref+"-receiver.log")).write_text(receiver_out)
     try: summary=json.loads(result.read_text())
     except Exception as exc: summary={"error":"result unavailable: "+str(exc)}
-    summary.update(engine=engine,profile=profile,repetition=rep,citoq_poll_mode=poll_mode if engine=="citoq" else "not_applicable",sender_exit=sender.returncode,
+    summary.update(engine=engine,profile=profile,repetition=rep,citoq_poll_mode=poll_mode if engine=="citoq" else "not_applicable",
+                   citoq_rx_sleep_us=rx_sleep_us if engine=="citoq" else None,sender_exit=sender.returncode,
                    receiver_exit=receiver.returncode,
                    bridge_rx_delta=sum(after[k]-before[k] for k in after if k.endswith("_rx")),
                    bridge_tx_delta=sum(after[k]-before[k] for k in after if k.endswith("_tx")))
@@ -99,8 +100,12 @@ def main():
     p.add_argument("--rate",type=float,default=100)
     p.add_argument("--profiles",default="baseline,netem_10ms_1pct")
     p.add_argument("--citoq-poll-mode",choices=("immediate","legacy"),default="immediate")
+    p.add_argument("--citoq-rx-sleep-us",type=int,default=500,
+                   help="CitoQ receiver delay after poll, 0=busy spin diagnostic")
     p.add_argument("--output-dir",default="benchmark-evidence")
     a=p.parse_args()
+    if not 0<=a.citoq_rx_sleep_us<=1_000_000:
+        p.error("--citoq-rx-sleep-us must be in [0, 1000000]")
     global OUT
     OUT=ROOT/a.output_dir
     OUT.mkdir(parents=True,exist_ok=True)
@@ -120,7 +125,7 @@ def main():
                 engines=a.engines.split(",")
                 if rep%2==0: engines.reverse()
                 for engine in engines:
-                    try: rows.append(bench(engine,profile,rep,a.python,a.count,a.payload,a.rate,a.citoq_poll_mode))
+                    try: rows.append(bench(engine,profile,rep,a.python,a.count,a.payload,a.rate,a.citoq_poll_mode,a.citoq_rx_sleep_us))
                     except Exception as exc:
                         print(f"BENCH_FAILURE {engine}: {exc}",flush=True)
                         rows.append({"engine":engine,"profile":profile,"repetition":rep,"accepted":False,"error":str(exc)})
