@@ -17,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -117,6 +118,9 @@ private:
             received;
         bool server_side{false};
         bool finalized{false};
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+        bool persistent_data{false};
+#endif
         std::atomic<bool> closed{
             false};
     };
@@ -492,6 +496,10 @@ public:
         }
 
         outbound_.clear();
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+        data_streams_.clear();
+        persistent_peers_.clear();
+#endif
 
         for (const auto& [peer, _] :
              inbound_) {
@@ -719,6 +727,10 @@ private:
 
     void disconnect(
         DestinationId destination) {
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+        data_streams_.erase(destination);
+        persistent_peers_.erase(destination);
+#endif
         const auto it =
             outbound_.find(
                 destination);
@@ -785,6 +797,14 @@ private:
         DestinationId destination,
         std::vector<std::uint8_t>
             bytes) {
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+        if (persistent_peers_.contains(destination) &&
+            bytes.size() >= 4 && bytes[0] == 'C' && bytes[1] == 'T' &&
+            bytes[2] == 'D' && bytes[3] == '1') {
+            send_persistent_data(destination, std::move(bytes));
+            return;
+        }
+#endif
         const auto it =
             outbound_.find(
                 destination);
@@ -887,11 +907,78 @@ private:
         }
     }
 
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+    // EXPERIMENT ONLY: both peers must explicitly enable this new frame
+    // protocol. Normal requests/replies still use one QUIC stream per frame.
+    // Do not turn this on in a mixed-version network without negotiation.
+    void send_persistent_data(DestinationId destination,
+                              std::vector<std::uint8_t> bytes) {
+        static constexpr std::size_t kMaxDataFrame = 16u * 1024u * 1024u;
+        if (bytes.empty() || bytes.size() > kMaxDataFrame) {
+            transport_failed(destination);
+            return;
+        }
+        const auto connection = outbound_.find(destination);
+        if (connection == outbound_.end() ||
+            !connection->second->connected.load(std::memory_order_acquire) ||
+            !connection->second->handle) {
+            runtime_.request_network().detach_session(
+                destination, RequestStatus::Unavailable);
+            return;
+        }
+
+        auto& stream = data_streams_[destination];
+        bool first_packet = false;
+        if (!stream || stream->closed.load(std::memory_order_acquire) ||
+            stream->connection.get() != connection->second.get()) {
+            auto fresh = std::make_shared<StreamState>();
+            fresh->connection = connection->second;
+            fresh->server_side = false;
+            auto* callback_context = new StreamContext{this, fresh};
+            HQUIC handle = nullptr;
+            if (QUIC_FAILED(api_->StreamOpen(
+                    connection->second->handle, QUIC_STREAM_OPEN_FLAG_NONE,
+                    &stream_callback, callback_context, &handle))) {
+                delete callback_context;
+                transport_failed(destination);
+                return;
+            }
+            fresh->handle = handle;
+            if (QUIC_FAILED(api_->StreamStart(handle, QUIC_STREAM_START_FLAG_NONE))) {
+                api_->StreamClose(handle);
+                fresh->handle = nullptr;
+                delete callback_context;
+                transport_failed(destination);
+                return;
+            }
+            stream = std::move(fresh);
+            first_packet = true;
+        }
+
+        std::vector<std::uint8_t> framed;
+        framed.reserve(bytes.size() + (first_packet ? 8u : 4u));
+        if (first_packet) {
+            framed.insert(framed.end(), {'C','Q','D','P'});
+            std::fprintf(stderr, "CITOQ_PERSISTENT_USED destination=%llu\n",
+                static_cast<unsigned long long>(destination));
+        }
+        const std::uint32_t size = static_cast<std::uint32_t>(bytes.size());
+        for (unsigned shift = 0; shift < 32; shift += 8) {
+            framed.push_back(static_cast<std::uint8_t>((size >> shift) & 0xffu));
+        }
+        framed.insert(framed.end(), bytes.begin(), bytes.end());
+        if (!send_on_stream(stream, std::move(framed), false)) {
+            transport_failed(destination);
+        }
+    }
+#endif
+
     bool send_on_stream(
         const std::shared_ptr<
             StreamState>& stream,
         std::vector<std::uint8_t>
-            bytes) {
+            bytes,
+        bool finish = true) {
         if (
             !stream ||
             !stream->handle ||
@@ -915,7 +1002,7 @@ private:
                     stream->handle,
                     &send->buffer,
                     1,
-                    QUIC_SEND_FLAG_FIN,
+                    finish ? QUIC_SEND_FLAG_FIN : QUIC_SEND_FLAG_NONE,
                     send))) {
             outstanding_sends_
                 .fetch_sub(
@@ -1003,6 +1090,15 @@ private:
                         destination,
                         bytes);
                 });
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+        // Best-effort capability probe over the existing authenticated QUIC
+        // stream protocol. A legacy listener ignores unknown CQPN magic.
+        // Until CQPA is received, continue using original CTD1 wire framing.
+        persistent_peers_.erase(state->destination);
+        data_streams_.erase(state->destination);
+        send_packet(state->destination,
+                    std::vector<std::uint8_t>{'C','Q','P','N'});
+#endif
     }
 
     void on_connection_closed(
@@ -1032,6 +1128,10 @@ private:
                             Unavailable);
 
                 outbound_.erase(it);
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+                data_streams_.erase(state->destination);
+                persistent_peers_.erase(state->destination);
+#endif
 
                 if (
                     lifecycle_ &&
@@ -1098,6 +1198,56 @@ private:
                 bytes.end());
         }
 
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+        // A persistent Pub/Sub stream is a CQDP magic followed by repeated
+        // little-endian u32 length + complete CTD1 frames. It does not wait
+        // for FIN. The per-stream buffer bounds incomplete/malicious frames.
+        static constexpr std::size_t kMaxDataFrame = 16u * 1024u * 1024u;
+        if (stream->server_side && !stream->persistent_data &&
+            stream->received.size() >= 4 &&
+            stream->received[0] == 'C' && stream->received[1] == 'Q' &&
+            stream->received[2] == 'D' && stream->received[3] == 'P') {
+            stream->persistent_data = true;
+            stream->received.erase(stream->received.begin(),
+                                   stream->received.begin() + 4);
+        }
+        if (stream->persistent_data) {
+            if (stream->received.size() > kMaxDataFrame + 8) {
+                stream->finalized = true;
+                graceful_stream_finish(stream);
+                return;
+            }
+            while (stream->received.size() >= 4) {
+                const auto* p = stream->received.data();
+                const std::uint32_t length =
+                    static_cast<std::uint32_t>(p[0]) |
+                    (static_cast<std::uint32_t>(p[1]) << 8) |
+                    (static_cast<std::uint32_t>(p[2]) << 16) |
+                    (static_cast<std::uint32_t>(p[3]) << 24);
+                if (length == 0 || length > kMaxDataFrame) {
+                    stream->finalized = true;
+                    graceful_stream_finish(stream);
+                    return;
+                }
+                if (stream->received.size() < static_cast<std::size_t>(length) + 4) {
+                    break;
+                }
+                if (options_.require_client_certificate) {
+                    (void)runtime_.request_network().receive_data(
+                        std::span<const std::uint8_t>(
+                            stream->received.data() + 4, length));
+                }
+                stream->received.erase(
+                    stream->received.begin(),
+                    stream->received.begin() + static_cast<std::size_t>(length) + 4);
+            }
+            if (peer_done) {
+                stream->finalized = true;
+                graceful_stream_finish(stream);
+            }
+            return;
+        }
+#endif
         if (!peer_done) {
             return;
         }
@@ -1110,6 +1260,40 @@ private:
                 stream);
             return;
         }
+
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+        // An opt-in peer announces persistent CTD1 support on an ordinary
+        // authenticated bidirectional QUIC stream. Legacy peers ignore this
+        // magic and receive only existing unmodified CTD1 frames.
+        if (stream->received.size() == 4 && stream->server_side &&
+            stream->received[0] == 'C' && stream->received[1] == 'Q' &&
+            stream->received[2] == 'P' && stream->received[3] == 'N') {
+            if (options_.require_client_certificate) {
+                std::vector<std::uint8_t> acknowledgement{'C','Q','P','A'};
+                if (!send_on_stream(stream, std::move(acknowledgement))) {
+                    graceful_stream_finish(stream);
+                }
+            } else {
+                graceful_stream_finish(stream);
+            }
+            return;
+        }
+        if (stream->received.size() == 4 && !stream->server_side &&
+            stream->received[0] == 'C' && stream->received[1] == 'Q' &&
+            stream->received[2] == 'P' && stream->received[3] == 'A') {
+            const auto destination = stream->connection->destination;
+            const auto connected = outbound_.find(destination);
+            if (connected != outbound_.end() &&
+                connected->second.get() == stream->connection.get() &&
+                connected->second->connected.load(std::memory_order_acquire)) {
+                persistent_peers_.insert(destination);
+                std::fprintf(stderr, "CITOQ_PERSISTENT_NEGOTIATED destination=%llu\n",
+                    static_cast<unsigned long long>(destination));
+            }
+            graceful_stream_finish(stream);
+            return;
+        }
+#endif
 
         // Data is admitted only when the listener required a validated
         // client certificate. Legacy unauthenticated RPC remains separate.
@@ -1698,6 +1882,13 @@ private:
         std::shared_ptr<
             ConnectionState>>
         outbound_;
+
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+    std::unordered_map<
+        DestinationId,
+        std::shared_ptr<StreamState>> data_streams_;
+    std::unordered_set<DestinationId> persistent_peers_;
+#endif
 
     std::unordered_map<
         RequestPeerId,
