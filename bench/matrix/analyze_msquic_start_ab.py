@@ -51,7 +51,7 @@ def main():
             "receiver_cpu_s":med("receiver_cpu_s"),"sender_cpu_s":med("sender_cpu_s")
         }
     def mean_p95(prefix):
-        vals=[out["groups"].get(prefix+x,{}).get("p95_ms") for x in "-a","-b"]
+        vals=[out["groups"].get(prefix+x,{}).get("p95_ms") for x in ("-a", "-b")]
         return statistics.mean(vals) if all(isinstance(v,(int,float)) for v in vals) else None
     baseline,candidate=mean_p95("baseline"),mean_p95("candidate")
     if baseline and candidate:
