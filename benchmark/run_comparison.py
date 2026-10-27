@@ -34,7 +34,7 @@ def set_profile(profile):
 def bytes_total():
     return {f"{name}_{direction}":int(pathlib.Path(f"/sys/class/net/{name}/statistics/{direction}_bytes").read_text())
             for name in ("citoq-pa","citoq-pb") for direction in ("rx","tx")}
-def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mode,rx_wait_ms):
+def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mode,rx_wait_ms,trace_stages):
     ns=NS[0] if role=="sender" else NS[1]
     library_dir=pathlib.Path(os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark"))).resolve()
     env={"PYTHONPATH":str(ROOT/"python"),"CITOQ_LIBRARY":str(library_dir/"libcitoq.so"),"CITOQ_NATIVE_LIBRARY":str(library_dir/"libcitoq_native.so")}
@@ -49,17 +49,19 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mod
         if engine=="citoq":
             args += ["--citoq-poll-mode",poll_mode,"--citoq-rx-sleep-us",str(rx_sleep_us),
                      "--citoq-rx-mode",rx_mode,"--citoq-rx-wait-ms",str(rx_wait_ms)]
+        if trace_stages:
+            args += ["--trace-stages"]
     if os.environ.get("CITOQ_BENCH_RESOURCES")=="1":
         args=["/usr/bin/time","-f","user_s=%U system_s=%S max_rss_kb=%M",
               "-o",str(result)+".resource"]+args
     command=["sudo","ip","netns","exec",ns,"env"]+[f"{k}={v}" for k,v in env.items()]+args
     return subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
-def bench(engine,profile,rep,py,count,payload,rate,poll_mode,rx_sleep_us,rx_mode,rx_wait_ms):
+def bench(engine,profile,rep,py,count,payload,rate,poll_mode,rx_sleep_us,rx_mode,rx_wait_ms,trace_stages):
     pref=f"{profile}-{engine}-r{rep}"; result=OUT/(pref+".json")
     before=bytes_total()
-    receiver=launch(engine,"receiver",py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mode,rx_wait_ms)
+    receiver=launch(engine,"receiver",py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mode,rx_wait_ms,trace_stages)
     time.sleep(2.5)
-    sender=launch(engine,"sender",py,count,payload,rate,OUT/(pref+"-sender.json"),poll_mode,rx_sleep_us,rx_mode,rx_wait_ms)
+    sender=launch(engine,"sender",py,count,payload,rate,OUT/(pref+"-sender.json"),poll_mode,rx_sleep_us,rx_mode,rx_wait_ms,trace_stages)
     try: sender_out,_=sender.communicate(timeout=30)
     except subprocess.TimeoutExpired:
         sender.kill(); sender_out,_=sender.communicate()
@@ -71,6 +73,16 @@ def bench(engine,profile,rep,py,count,payload,rate,poll_mode,rx_sleep_us,rx_mode
     (OUT/(pref+"-receiver.log")).write_text(receiver_out)
     try: summary=json.loads(result.read_text())
     except Exception as exc: summary={"error":"result unavailable: "+str(exc)}
+    if trace_stages and engine != "fastdds":
+        for line in sender_out.splitlines():
+            if line.startswith("SENDER_STAGE_JSON="):
+                try:
+                    summary.update(json.loads(line.split("=",1)[1]))
+                except (ValueError,TypeError) as exc:
+                    summary["stage_error"]=str(exc)
+                break
+        else:
+            summary["stage_error"]="sender stage report missing"
     summary.update(engine=engine,profile=profile,repetition=rep,citoq_poll_mode=poll_mode if engine=="citoq" else "not_applicable",
                    citoq_rx_sleep_us=rx_sleep_us if engine=="citoq" else None,
                    citoq_rx_mode=rx_mode if engine=="citoq" else None,
@@ -89,7 +101,9 @@ def bench(engine,profile,rep,py,count,payload,rate,poll_mode,rx_sleep_us,rx_mode
                     summary[role+"_max_rss_kb"]=int(match[3])
             except OSError:
                 pass
-    summary["accepted"]=sender.returncode==0 and receiver.returncode==0 and summary.get("complete")==True and not summary.get("error")
+    summary["accepted"]=(sender.returncode==0 and receiver.returncode==0 and
+                         summary.get("complete")==True and not summary.get("error") and
+                         not summary.get("stage_error"))
     (OUT/(pref+"-summary.json")).write_text(json.dumps(summary,indent=2)+"\n")
     print("BENCH_SUMMARY "+json.dumps(summary,sort_keys=True),flush=True)
     return summary
@@ -107,6 +121,8 @@ def main():
                    help="CitoQ receiver delay after poll, 0=busy spin diagnostic")
     p.add_argument("--citoq-rx-mode",choices=("sleep","event"),default="sleep")
     p.add_argument("--citoq-rx-wait-ms",type=int,default=10)
+    p.add_argument("--trace-stages",action="store_true",
+                   help="add sender/receiver application stage timestamps")
     p.add_argument("--output-dir",default="benchmark-evidence")
     a=p.parse_args()
     if not 0<=a.citoq_rx_sleep_us<=1_000_000 or not 0<=a.citoq_rx_wait_ms<=1000:
@@ -130,7 +146,7 @@ def main():
                 engines=a.engines.split(",")
                 if rep%2==0: engines.reverse()
                 for engine in engines:
-                    try: rows.append(bench(engine,profile,rep,a.python,a.count,a.payload,a.rate,a.citoq_poll_mode,a.citoq_rx_sleep_us,a.citoq_rx_mode,a.citoq_rx_wait_ms))
+                    try: rows.append(bench(engine,profile,rep,a.python,a.count,a.payload,a.rate,a.citoq_poll_mode,a.citoq_rx_sleep_us,a.citoq_rx_mode,a.citoq_rx_wait_ms,a.trace_stages))
                     except Exception as exc:
                         print(f"BENCH_FAILURE {engine}: {exc}",flush=True)
                         rows.append({"engine":engine,"profile":profile,"repetition":rep,"accepted":False,"error":str(exc)})
