@@ -6,6 +6,11 @@ on:
     paths:
       - 'benchmark/**'
       - 'bench/matrix/analyze_poll_ab.py'
+      - 'include/citoq/detail/linux_request_runtime_driver.hpp'
+      - 'include/citoq/native_runtime_c.h'
+      - 'src/linux_request_runtime_driver.cpp'
+      - 'src/native_runtime_c.cpp'
+      - 'python/citoq/native_runtime.py'
       - '.github/workflows/benchmark-receiver-poll-ab.yml'
   workflow_dispatch:
 
@@ -71,10 +76,15 @@ jobs:
           set -euo pipefail
           python3 -m py_compile benchmark/bench_driver.py benchmark/run_comparison.py bench/matrix/analyze_poll_ab.py
           python3 -m unittest discover -s benchmark -p 'test_*.py' -v
-          for cohort in citoq-500 citoq-0 citoq-100 citoq-500-repeat zenoh; do
+          for cohort in citoq-500 citoq-0 citoq-100 citoq-event citoq-500-repeat zenoh; do
+            rx_mode=sleep
             if [[ "$cohort" == zenoh ]]; then
               engine=zenoh
               cadence=500
+            elif [[ "$cohort" == citoq-event ]]; then
+              engine=citoq
+              cadence=500
+              rx_mode=event
             else
               engine=citoq
               cadence="${cohort#citoq-}"
@@ -84,6 +94,7 @@ jobs:
             CITOQ_BENCH_RESOURCES=1 python3 benchmark/run_comparison.py --python "$GITHUB_WORKSPACE/.venv/bin/python" \
               --engines "$engine" --count 200 --rate 100 --repeats 3 --payload 256 \
               --profiles baseline --citoq-poll-mode immediate --citoq-rx-sleep-us "$cadence" \
+              --citoq-rx-mode "$rx_mode" --citoq-rx-wait-ms 10 \
               --output-dir "poll-evidence/$cohort"
             echo "::endgroup::"
           done
