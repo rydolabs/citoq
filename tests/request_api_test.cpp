@@ -241,6 +241,60 @@ int main() {
             .has_local_demand(
                 ordinary_key));
 
+
+    // The new on_request() spelling is scoped/RAII; unlike handle(), its
+    // registration closes at scope exit rather than Context destruction.
+    {
+        auto scoped_handler =
+            provider.on_request<Ping>(
+                "robot_1",
+                [](const Ping& ping) {
+                    return Pong{static_cast<std::uint8_t>(ping.value + 2)};
+                });
+        assert(runtime->host().has_local_demand(capability));
+        auto scoped_result = requester.request("robot_1", Ping{10});
+        assert(scoped_result.ready());
+        assert(scoped_result.result());
+        assert(scoped_result.result().value().value == 12);
+
+        // Moving preserves the registration; moved-from destructor does
+        // not deregister the surviving handle.
+        auto surviving = std::move(scoped_handler);
+        assert(runtime->host().has_local_demand(capability));
+        (void)surviving;
+    }
+    assert(!runtime->host().has_local_demand(capability));
+
+    // Overwriting a scoped handler closes the previously-held registration.
+    {
+        auto old_handler = provider.on_request<Ping>(
+            "robot_1", [](const Ping&) { return Pong{1}; });
+        auto new_handler = provider.on_request<Ping>(
+            "robot_1", [](const Ping&) { return Pong{2}; });
+        assert(runtime->requests().handler_count(request_key) == 2);
+        old_handler = std::move(new_handler);
+        assert(runtime->requests().handler_count(request_key) == 1);
+        auto answer = requester.request("robot_1", Ping{1});
+        assert(answer.ready() && answer.result());
+        assert(answer.result().value().value == 2);
+    }
+    assert(runtime->requests().handler_count(request_key) == 0);
+    assert(!runtime->host().has_local_demand(capability));
+
+    // Explicit close is idempotent and prevents destructor double-close.
+    {
+        auto scoped = provider.on_request<Ping>(
+            "robot_1", [](const Ping&) { return Pong{3}; });
+        scoped.close();
+        scoped.close();
+        assert(runtime->requests().handler_count(request_key) == 0);
+    }
+
+    // A dropped unnamed temporary intentionally closes immediately.
+    provider.on_request<Ping>(
+        "robot_1", [](const Ping&) { return Pong{3}; });
+    assert(runtime->requests().handler_count(request_key) == 0);
+
     ordinary_subscription.close();
 
     return 0;

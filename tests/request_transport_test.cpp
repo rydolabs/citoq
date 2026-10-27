@@ -1,10 +1,13 @@
 #include <citoq/detail/request_transport.hpp>
+#include <citoq/access_policy.hpp>
 
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <span>
 #include <stdexcept>
+#include <unordered_map>
+#include <string>
 #include <vector>
 
 namespace {
@@ -601,6 +604,155 @@ int main() {
         RequestStatus::Internal);
     assert(internal.request_id == 500);
     assert(server.inbound_count() == 0);
+
+
+    // Bounded replay defense: completed requests must not dispatch again
+    // when the same wire RequestId is reused on one authenticated session.
+    HostRuntimeCore guard_host;
+    RequestReplyCore guard_requests;
+    RequestTransportCore guard_transport(guard_host, guard_requests, 2);
+    const RequestKey guard_key{42, 43, 44};
+    int guard_calls = 0;
+    RequestReplyCore::Reply held_reply;
+    guard_requests.register_handler(
+        51, guard_key,
+        [&](RequestId, AppId, std::span<const std::uint8_t>,
+            RequestReplyCore::Reply reply) {
+            ++guard_calls;
+            if (guard_calls == 4) {
+                held_reply = std::move(reply);
+                return;
+            }
+            const std::array<std::uint8_t, 1> value{0x7f};
+            assert(reply(RequestStatus::Ok, value));
+        });
+
+    auto probe = [&](RequestPeerId peer, RequestId id) {
+        std::vector<std::uint8_t> answer;
+        const auto frame =
+            encode_request_transport_request(id, guard_key, {});
+        assert(guard_transport.on_request(
+            peer, frame, [&](std::span<const std::uint8_t> bytes) {
+                answer.assign(bytes.begin(), bytes.end());
+                return true;
+            }));
+        return decode_request_transport_frame(answer).status;
+    };
+
+    assert(probe(600, 1) == RequestStatus::Ok);
+    assert(guard_calls == 1);
+    assert(guard_transport.inbound_count() == 0);
+    assert(guard_transport.recent_request_count() == 1);
+    assert(probe(600, 1) == RequestStatus::InvalidArgument);
+    assert(guard_calls == 1);
+
+    // Same wire ID from a different QUIC session is independent.
+    assert(probe(601, 1) == RequestStatus::Ok);
+    assert(guard_calls == 2);
+    assert(guard_transport.recent_request_count() == 2);
+
+    // Bound at two IDs: oldest tombstone is evicted, not leaked forever.
+    assert(probe(600, 2) == RequestStatus::Ok);
+    assert(guard_calls == 3);
+    assert(guard_transport.recent_request_count() == 2);
+    assert(probe(600, 2) == RequestStatus::InvalidArgument);
+    assert(guard_calls == 3);
+
+    // In-flight duplicate is also rejected by active correlation state.
+    // The oldest evicted id may execute again; that is explicitly *not*
+    // exactly-once behavior, and the app must use an idempotency key.
+    const auto in_flight =
+        encode_request_transport_request(3, guard_key, {});
+    std::vector<std::uint8_t> in_flight_reply;
+    assert(guard_transport.on_request(
+        600, in_flight,
+        [&](std::span<const std::uint8_t> bytes) {
+            in_flight_reply.assign(bytes.begin(), bytes.end());
+            return true;
+        }));
+    assert(guard_calls == 4);
+    assert(guard_transport.inbound_count() == 1);
+    assert(in_flight_reply.empty());
+
+    assert(guard_transport.on_request(
+        600, in_flight,
+        [&](std::span<const std::uint8_t> bytes) {
+            in_flight_reply.assign(bytes.begin(), bytes.end());
+            return true;
+        }));
+    assert(decode_request_transport_frame(in_flight_reply).status ==
+           RequestStatus::InvalidArgument);
+    assert(guard_calls == 4);
+
+    const auto cancel_in_flight =
+        encode_request_transport_cancel(3);
+    assert(guard_transport.on_cancel(600, cancel_in_flight));
+    assert(guard_transport.inbound_count() == 0);
+    assert(!held_reply(RequestStatus::Ok, {}));
+    assert(probe(600, 3) == RequestStatus::InvalidArgument);
+    assert(guard_calls == 4);
+
+    // Peer teardown drops session-scoped tombstones; new sessions are
+    // assigned new identities by the QUIC listener.
+    assert(guard_transport.drop_peer(600) == 0);
+    assert(guard_transport.recent_request_count() == 0);
+    assert(probe(600, 2) == RequestStatus::Ok);
+    assert(guard_calls == 5);
+
+    // Standalone guard also supports an explicitly disabled, zero-sized
+    // window without compromising active in-flight deduplication.
+    RecentRequestIds disabled(0);
+    assert(!disabled.remember(1, 11));
+    assert(disabled.size() == 0);
+    RecentRequestIds window(2);
+    assert(window.remember(1, 11));
+    assert(!window.remember(1, 11));
+    assert(window.remember(2, 11));
+    assert(window.remember(1, 12));
+    assert(!window.contains(1, 11));
+    assert(window.contains(2, 11));
+    window.forget_peer(2);
+    assert(!window.contains(2, 11));
+
+    // Optional request ACL enforces a verified-principal-derived decision
+    // before handler dispatch. A raw peer number is never itself trusted.
+    citoq::AccessPolicy acl(4);
+    const citoq::InterestKey guard_demand{
+        guard_key.scope, guard_key.resource, guard_key.request_type};
+    std::unordered_map<RequestPeerId, std::string> verified_principals{
+        {700, "robot-control"}};
+    guard_transport.set_request_authorizer(
+        [&](RequestPeerId peer, const RequestKey& key) {
+            const auto principal = verified_principals.find(peer);
+            if (principal == verified_principals.end()) return false;
+            return acl.allows(
+                principal->second, citoq::AccessOperation::Request,
+                citoq::InterestKey{key.scope, key.resource, key.request_type});
+        });
+    assert(probe(700, 90) == RequestStatus::Unavailable);
+    assert(probe(701, 90) == RequestStatus::Unavailable);
+    assert(guard_calls == 5);
+    assert(acl.grant(
+        "robot-control", citoq::AccessOperation::Request, guard_demand));
+    assert(probe(700, 90) == RequestStatus::Ok);
+    assert(guard_calls == 6);
+    assert(probe(701, 90) == RequestStatus::Unavailable);
+    assert(guard_calls == 6);
+    assert(acl.revoke(
+        "robot-control", citoq::AccessOperation::Request, guard_demand));
+    assert(probe(700, 91) == RequestStatus::Unavailable);
+    assert(guard_calls == 6);
+
+    // A faulty authorization callback must not turn into "allow".
+    guard_transport.set_request_authorizer(
+        [](RequestPeerId, const RequestKey&) -> bool {
+            throw std::runtime_error("authorization failed");
+        });
+    assert(probe(700, 92) == RequestStatus::Unavailable);
+    assert(guard_calls == 6);
+    guard_transport.clear_request_authorizer();
+    assert(probe(701, 93) == RequestStatus::Ok);
+    assert(guard_calls == 7);
 
     return 0;
 }

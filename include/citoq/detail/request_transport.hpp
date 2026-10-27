@@ -1,6 +1,7 @@
 #pragma once
 
 #include <citoq/detail/request_reply_core.hpp>
+#include <citoq/detail/recent_request_ids.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -413,11 +414,28 @@ public:
         std::function<bool(
             std::span<const std::uint8_t>)>;
 
+    // An embedder may bind the connection-local peer id to a VERIFIED
+    // mTLS principal, then evaluate an exact-key AccessPolicy here.
+    // The numeric peer id alone is not an authenticated identity.
+    // Absent a callback, legacy behavior remains unchanged.
+    using RequestAuthorizer =
+        std::function<bool(RequestPeerId, const RequestKey&)>;
+
+    void set_request_authorizer(RequestAuthorizer callback) {
+        request_authorizer_ = std::move(callback);
+    }
+
+    void clear_request_authorizer() noexcept {
+        request_authorizer_ = {};
+    }
+
     RequestTransportCore(
         HostRuntimeCore& host,
-        RequestReplyCore& requests)
+        RequestReplyCore& requests,
+        std::size_t recent_request_limit = 1024)
         : host_(host),
-          requests_(requests) {}
+          requests_(requests),
+          recent_requests_(recent_request_limit) {}
 
     std::optional<
         RequestTransportSend>
@@ -543,10 +561,41 @@ public:
                 "CitoQ remote reply sender is empty");
         }
 
+        // Fail closed when an opt-in authorizer rejects or throws.
+        // Do not publish handler availability or invoke user code.
+        if (request_authorizer_) {
+            bool allowed = false;
+            try {
+                allowed = request_authorizer_(peer, frame.key);
+            } catch (...) {
+                allowed = false;
+            }
+            if (!allowed) {
+                const auto reply =
+                    encode_request_transport_reply(
+                        frame.request_id,
+                        RequestStatus::Unavailable,
+                        {});
+                return send_reply(reply);
+            }
+        }
+
         const InboundRequestKey
             inbound_key{
                 peer,
                 frame.request_id};
+
+        // Do not execute the same peer/session + RequestId twice,
+        // even after its first handler has already completed or cancelled.
+        // This is a bounded replay window, not a cross-reconnect guarantee.
+        if (recent_requests_.contains(peer, frame.request_id)) {
+            const auto reply =
+                encode_request_transport_reply(
+                    frame.request_id,
+                    RequestStatus::InvalidArgument,
+                    {});
+            return send_reply(reply);
+        }
 
         const auto [inbound_it, inserted] =
             inbound_.emplace(
@@ -563,6 +612,13 @@ public:
 
             return send_reply(
                 reply);
+        }
+
+        try {
+            (void)recent_requests_.remember(peer, frame.request_id);
+        } catch (...) {
+            inbound_.erase(inbound_key);
+            throw;
         }
 
         auto reply_once =
@@ -875,6 +931,10 @@ public:
                 id);
         }
 
+        // MsQuic assigns a fresh peer id to each accepted connection.
+        // Releasing old tombstones bounds memory for short-lived sessions.
+        recent_requests_.forget_peer(peer);
+
         return
             handler_request_ids.size();
     }
@@ -887,6 +947,11 @@ public:
     std::size_t inbound_count()
         const noexcept {
         return inbound_.size();
+    }
+
+    std::size_t recent_request_count()
+        const noexcept {
+        return recent_requests_.size();
     }
 
 private:
@@ -949,6 +1014,9 @@ private:
         RequestId,
         InboundRequestKeyHash>
         inbound_;
+
+    RecentRequestIds recent_requests_;
+    RequestAuthorizer request_authorizer_;
 };
 
 } // namespace citoq::detail
