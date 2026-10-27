@@ -18,3 +18,9 @@ Product source pinned to `08188eba73284dd1069016174ad216f5e02d2cfa`. The benchma
 ## Reproducibility
 
 All raw logs, per-process results, package versions and failed cases remain in Actions artifacts. Never replace a failed 200/200 delivery with a successful-looking latency statistic.
+
+## Corrections identified during validation
+
+Zenoh v1.10.1 supports **automatic shared memory offload for payloads >= 3072 bytes** on same-host links. Linux network namespaces do not isolate IPC, so the first 4KiB and 16KiB Zenoh payload test saw implausibly low veth byte counts despite 200/200 deliveries. That run is **not a valid all-network traffic comparison**. Both the public size and experimental node scripts now explicitly set `transport/shared_memory/enabled=false` before opening Zenoh, and the size matrix is re-run. Official Zenoh 1.10 release notes: https://zenoh.io/blog/2026-08-17-zenoh-1.10/ .
+
+The CitoQ public `Context` + native mTLS/QUIC **multi-node** smoke is also under `.github/workflows/benchmark-public-discovery.yml`. Each interested receiver runs as an independent netns process and announces its authenticated QUIC endpoint. The sender records when its `publish_raw()` reports *all N-2 remote interested peers*, then each receiver verifies 8 unique messages while a noninterested node sees zero. It is still an exploratory **publisher readiness** metric, not a matched cross-engine cold-start discovery benchmark. The initial 3-node pass: https://github.com/rydolabs/citoq/actions/runs/40437664362 (100.479ms publisher readiness, 8/8 delivered). The updated test expands to 3/10/30 peers with the same ephemeral CA and IP-SAN identities.

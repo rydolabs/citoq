@@ -47,8 +47,17 @@ def main():
   prior=m26.interface_stats(a.nodes)
   launch(0,"publisher")
   sender=handles[0]
-  try:sender.wait(timeout=30)
-  except subprocess.TimeoutExpired:sender.kill();sender.wait()
+  ready_stats=None
+  sender_log=a.output/"node-000-publisher.log"
+  publisher_deadline=time.monotonic()+30
+  while time.monotonic()<publisher_deadline and sender.poll() is None:
+   if ready_stats is None and "PUBLIC_DISCOVERY_READY" in sender_log.read_text(errors="replace"):
+    ready_stats=m26.interface_stats(a.nodes)
+   time.sleep(.025)
+  if sender.poll() is None:sender.kill()
+  sender.wait()
+  if ready_stats is None and "PUBLIC_DISCOVERY_READY" in sender_log.read_text(errors="replace"):
+   ready_stats=m26.interface_stats(a.nodes)
   for i,h in handles.items():
    if i==0:continue
    try:h.wait(timeout=34)
@@ -67,7 +76,8 @@ def main():
       received=sum(x.get("received",0) for x in rows if x["role"]=="subscriber"),
       expected_deliveries=(a.nodes-2)*a.count,
       negative_received=sum(x.get("received",0) for x in rows if x["role"]=="negative"),
-      prep_receive_veth_bytes=m26.delta(prior,before)["rx_bytes"],
+      startup_subscriber_veth_rx_bytes=m26.delta(prior,before)["rx_bytes"],
+      discovery_post_publisher_rx_bytes=m26.delta(ready_stats,prior)["rx_bytes"] if ready_stats else None,
       whole_trial_veth_rx_bytes=m26.delta(after,before)["rx_bytes"])
  except Exception as exc:
   metrics=dict(nodes=a.nodes,error=str(exc),all_processes=False)
