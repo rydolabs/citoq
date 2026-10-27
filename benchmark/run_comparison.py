@@ -48,6 +48,9 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode):
               "--result",str(result)]
         if engine=="citoq":
             args += ["--citoq-poll-mode",poll_mode]
+    if os.environ.get("CITOQ_BENCH_RESOURCES")=="1":
+        args=["/usr/bin/time","-f","user_s=%U system_s=%S max_rss_kb=%M",
+              "-o",str(result)+".resource"]+args
     command=["sudo","ip","netns","exec",ns,"env"]+[f"{k}={v}" for k,v in env.items()]+args
     return subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
 def bench(engine,profile,rep,py,count,payload,rate,poll_mode):
@@ -71,6 +74,17 @@ def bench(engine,profile,rep,py,count,payload,rate,poll_mode):
                    receiver_exit=receiver.returncode,
                    bridge_rx_delta=sum(after[k]-before[k] for k in after if k.endswith("_rx")),
                    bridge_tx_delta=sum(after[k]-before[k] for k in after if k.endswith("_tx")))
+    if os.environ.get("CITOQ_BENCH_RESOURCES")=="1":
+        import re
+        for role, resource in (("sender",OUT/(pref+"-sender.json.resource")),
+                               ("receiver",pathlib.Path(str(result)+".resource"))):
+            try:
+                match=re.search(r"user_s=([0-9.]+) system_s=([0-9.]+) max_rss_kb=(\\d+)",resource.read_text())
+                if match:
+                    summary[role+"_cpu_s"]=round(float(match[1])+float(match[2]),6)
+                    summary[role+"_max_rss_kb"]=int(match[3])
+            except OSError:
+                pass
     summary["accepted"]=sender.returncode==0 and receiver.returncode==0 and summary.get("complete")==True and not summary.get("error")
     (OUT/(pref+"-summary.json")).write_text(json.dumps(summary,indent=2)+"\n")
     print("BENCH_SUMMARY "+json.dumps(summary,sort_keys=True),flush=True)
