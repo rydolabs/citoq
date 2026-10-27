@@ -36,7 +36,8 @@ def bytes_total():
             for name in ("citoq-pa","citoq-pb") for direction in ("rx","tx")}
 def launch(engine,role,py,count,payload,rate,result,poll_mode):
     ns=NS[0] if role=="sender" else NS[1]
-    env={"PYTHONPATH":str(ROOT/"python"),"CITOQ_LIBRARY":str(ROOT/"build-benchmark/libcitoq.so"),"CITOQ_NATIVE_LIBRARY":str(ROOT/"build-benchmark/libcitoq_native.so")}
+    library_dir=pathlib.Path(os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark"))).resolve()
+    env={"PYTHONPATH":str(ROOT/"python"),"CITOQ_LIBRARY":str(library_dir/"libcitoq.so"),"CITOQ_NATIVE_LIBRARY":str(library_dir/"libcitoq_native.so")}
     if engine=="fastdds":
         args=[str(ROOT/"build-benchmark-adapter/fastdds_node"),role,str(count),str(payload),str(rate),str(result)]
     else:
@@ -89,7 +90,8 @@ def main():
     global OUT
     OUT=ROOT/a.output_dir
     OUT.mkdir(parents=True,exist_ok=True)
-    ver={"source_sha":"08188eba73284dd1069016174ad216f5e02d2cfa",
+    ver={"product_baseline_sha":"08188eba73284dd1069016174ad216f5e02d2cfa",
+         "library_dir":os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark")),
          "harness_sha":cmd("git","rev-parse","HEAD").stdout.strip(),
          "kernel":cmd("uname","-r").stdout.strip(),
          "fastdds":cmd("dpkg-query","-W","libfastrtps-dev",check=False).stdout.strip(),
