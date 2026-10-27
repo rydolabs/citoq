@@ -140,10 +140,32 @@ def zenoh_run(args, collector):
     # Zenoh 1.10 auto-promotes >=3072-byte same-host messages to SHM.
     # Linux netns share IPC: force the actual TCP/veth path for network A/B.
     cfg.insert_json5("transport/shared_memory/enabled", "false")
-    if args.role=="receiver":
-        cfg.insert_json5("listen/endpoints", '["tcp/0.0.0.0:7447"]')
+    if args.zenoh_transport == "quic-mtls":
+        # Same native QUIC+mTLS trust roots, signed identities, payloads and
+        # veth namespaces as the CitoQ control. This is security/transport
+        # normalized, NOT identical internal QoS, stream/framing or runtime.
+        cfg.insert_json5("transport/link/protocols", '["quic"]')
+        tls = {
+            "root_ca_certificate": str(args.ca),
+            "enable_mtls": True,
+            "verify_name_on_connect": True,
+        }
+        if args.role == "receiver":
+            tls.update(listen_certificate=str(args.cert),
+                       listen_private_key=str(args.key))
+        else:
+            tls.update(connect_certificate=str(args.client_cert),
+                       connect_private_key=str(args.client_key))
+        cfg.insert_json5("transport/link/tls", json.dumps(tls))
+        protocol = "quic"
     else:
-        cfg.insert_json5("connect/endpoints", '["tcp/10.217.0.2:7447"]')
+        cfg.insert_json5("transport/link/protocols", '["tcp"]')
+        protocol = "tcp"
+    if args.role=="receiver":
+        cfg.insert_json5("listen/endpoints", json.dumps([f"{protocol}/0.0.0.0:7447"]))
+    else:
+        cfg.insert_json5("connect/endpoints", json.dumps([f"{protocol}/10.217.0.2:7447"]))
+    print("ZENOH_TRANSPORT=" + args.zenoh_transport, flush=True)
     with zenoh.open(cfg) as session:
         if args.role=="receiver":
             def receive(sample):
@@ -256,6 +278,8 @@ def main():
     ap.add_argument("--payload",type=int,default=256)
     ap.add_argument("--rate",type=float,default=100)
     ap.add_argument("--timeout",type=float,default=16)
+    ap.add_argument("--zenoh-transport",choices=("tcp","quic-mtls"),default="tcp",
+                    help="quic-mtls restricts links to QUIC with CA trust and client certificate authentication")
     ap.add_argument("--citoq-poll-mode",choices=("immediate","legacy"),default="immediate",
                     help="immediate services queued QUIC send after publish; legacy reproduces the 10ms benchmark bug")
     ap.add_argument("--citoq-rx-sleep-us",type=int,default=500,
