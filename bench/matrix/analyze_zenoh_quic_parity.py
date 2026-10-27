@@ -59,7 +59,8 @@ def main():
                 r.get("duplicates")!=0 or r.get("missing")!=0 or r.get("invalid")!=0 or
                 r.get("sender_exit")!=0 or r.get("receiver_exit")!=0 or
                 r.get("payload_bytes")!=args.payload or
-                (engine=="zenoh" and r.get("zenoh_transport")!=transport) or
+                (engine=="zenoh" and (r.get("zenoh_transport")!=transport or
+                                      r.get("zenoh_auth_control")!="legitimate")) or
                 (engine=="citoq" and r.get("citoq_rx_mode")!="event")):
                 errors.append(f"{cohort} rep={r.get('repetition')}: invalid or mislabeled: {r}")
             else:
