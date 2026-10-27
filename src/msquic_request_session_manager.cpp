@@ -768,11 +768,24 @@ private:
                 bytes.begin(),
                 bytes.end());
 
+#if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
+        const auto enqueued_at = std::chrono::steady_clock::now();
+#endif
         post(
             [this,
              destination,
              owned =
-                 std::move(owned)] {
+                 std::move(owned)
+#if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
+             , enqueued_at
+#endif
+             ] {
+#if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
+                const auto queued_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now() - enqueued_at).count();
+                std::fprintf(stderr, "CITOQ_QUIC_QUEUE sender_delay_ns=%lld\n",
+                    static_cast<long long>(queued_ns));
+#endif
                 send_packet(
                     destination,
                     std::move(owned));
@@ -1587,12 +1600,25 @@ private:
                      QUIC_RECEIVE_FLAG_FIN) !=
                     0;
 
+#if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
+                const auto received_at = std::chrono::steady_clock::now();
+#endif
                 self->post(
                     [self,
                      stream,
                      bytes =
                          std::move(bytes),
-                     peer_done]() mutable {
+                     peer_done
+#if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
+                     , received_at
+#endif
+                     ]() mutable {
+#if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
+                        const auto queued_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                            std::chrono::steady_clock::now() - received_at).count();
+                        std::fprintf(stderr, "CITOQ_QUIC_QUEUE receiver_delay_ns=%lld\n",
+                            static_cast<long long>(queued_ns));
+#endif
                         self->
                             on_stream_bytes(
                                 stream,
