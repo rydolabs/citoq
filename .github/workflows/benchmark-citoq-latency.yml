@@ -71,7 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           for mode in legacy immediate; do
-            python3 benchmark/run_comparison.py --python "$GITHUB_WORKSPACE/.venv/bin/python" \
+            python3 benchmark/run_comparison.py --python "$(command -v python3)" \
               --engines citoq --count 200 --payload 256 --rate 100 --repeats 3 --profiles baseline \
               --citoq-poll-mode "$mode" --output-dir "benchmark-evidence/$mode"
           done
