@@ -33,7 +33,7 @@ int main(int argc,char**argv){
  dds_entity_t waitset=-1;
  if(!pub){waitset=dds_create_waitset(p);if(waitset<0)fail("waitset",waitset);for(int t=0;t<active;++t){dds_entity_t cond=dds_create_readcondition(ends[t],DDS_ANY_STATE);if(cond<0)fail("readcondition",cond);dds_return_t rc=dds_waitset_attach(waitset,cond,(dds_attach_t)t);if(rc<0)fail("attach",rc);}}
  uint8_t *seen=calloc((size_t)topics*samples,1);uint64_t *lat=calloc((size_t)topics*samples,sizeof(uint64_t));uint64_t recv=0,bad=0,dup=0,sent=0;bool ready=false;
- uint64_t first=0;
+ uint64_t first=0,first_received_ns=0;
  char* payload=malloc(size);memset(payload,'A',size-12);payload[size-12]=0;
  Bench_Msg*sample=Bench_Msg__alloc();void*storage[1]={sample};dds_sample_info_t info[1];
  while((ns()-start)/1000000ull<(uint64_t)life){
@@ -49,7 +49,11 @@ int main(int argc,char**argv){
    for(int t=0;t<active;++t){for(;;){dds_return_t count=dds_take(ends[t],storage,info,1,1);if(count<0)fail("take",count);if(count==0)break;if(count==1&&info[0].valid_data){
      Bench_Msg*m=storage[0];if(negative||m->seq>=(uint32_t)samples||!m->payload||strlen(m->payload)!=(size_t)size-12||m->sent_ns>ns()){bad++;continue;}
      char expected=65+t%23;bool valid=true;for(int j=0;j<size-12;++j)if(m->payload[j]!=expected){valid=false;break;}if(!valid){bad++;continue;}
-     size_t index=(size_t)t*samples+m->seq;if(seen[index]++)dup++;else{lat[recv++]=(ns()-m->sent_ns)/1000;}
+     size_t index=(size_t)t*samples+m->seq;if(seen[index]++)dup++;else{
+       uint64_t arrival_ns=ns();
+       if(!first_received_ns){first_received_ns=arrival_ns;printf("BENCH_FIRST_DATA ns=%llu\n",(unsigned long long)arrival_ns);fflush(stdout);}
+       lat[recv++]=(arrival_ns-m->sent_ns)/1000;
+     }
    }}}
    if(!negative&&recv==expected_received)break;
   }
@@ -57,7 +61,7 @@ int main(int argc,char**argv){
  }
  qsort(lat,recv,sizeof(uint64_t),cmp);
  uint64_t p95=recv?lat[(95*recv+99)/100-1]:0;
- printf("{\"role\":\"%s\",\"topics\":%d,\"bytes\":%d,\"samples\":%d,\"sent\":%llu,\"received\":%llu,\"bad\":%llu,\"duplicate\":%llu,\"p95_us\":%llu,\"ready\":%d,\"index\":%d,\"active_topics\":%d}\n",role,topics,size,samples,(unsigned long long)sent,(unsigned long long)recv,(unsigned long long)bad,(unsigned long long)dup,(unsigned long long)p95,ready?1:0,index,subscribed);
+ printf("{\"role\":\"%s\",\"topics\":%d,\"bytes\":%d,\"samples\":%d,\"sent\":%llu,\"received\":%llu,\"bad\":%llu,\"duplicate\":%llu,\"p95_us\":%llu,\"ready\":%d,\"index\":%d,\"active_topics\":%d,\"first_received_ns\":%llu}\n",role,topics,size,samples,(unsigned long long)sent,(unsigned long long)recv,(unsigned long long)bad,(unsigned long long)dup,(unsigned long long)p95,ready?1:0,index,subscribed,(unsigned long long)first_received_ns);
  dds_delete(p);Bench_Msg_free(sample,DDS_FREE_ALL);free(payload);free(lat);free(seen);free(ends);
  if(pub)return (ready&&sent==(uint64_t)topics*samples)?0:3;
  if(negative)return (recv==0&&bad==0)?0:4;

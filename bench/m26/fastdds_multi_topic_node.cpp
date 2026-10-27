@@ -113,7 +113,7 @@ int main(int argc, char** argv) {
                 readers.push_back(reader);
             }
         }
-        std::uint64_t first=0,sent=0,received=0,bad=0,dup=0;
+        std::uint64_t first=0,sent=0,received=0,bad=0,dup=0,first_received_ns=0;
         bool ready=false;
         std::vector<unsigned char> seen((std::size_t)ntopics*nsamples,0);
         std::vector<std::uint64_t> latencies;
@@ -162,6 +162,10 @@ int main(int argc, char** argv) {
                         const auto at=(std::size_t)t*nsamples+m.seq();
                         if (seen[at]++) ++dup;
                         else {
+                            if (!first_received_ns) {
+                                first_received_ns=arrival;
+                                std::cout<<"BENCH_FIRST_DATA ns="<<arrival<<std::endl;
+                            }
                             ++received;
                             latencies.push_back((arrival-m.sent_ns())/1000);
                         }
@@ -177,7 +181,7 @@ int main(int argc, char** argv) {
                  <<",\"bad\":"<<bad<<",\"duplicate\":"<<dup
                  <<",\"p95_us\":"<<percentile95(latencies)
                  <<",\"ready\":"<<(ready?1:0)<<",\"index\":"<<index
-                 <<",\"active_topics\":"<<subscribed<<"}"<<std::endl;
+                 <<",\"active_topics\":"<<subscribed<<",\"first_received_ns\":"<<first_received_ns<<"}"<<std::endl;
         factory->delete_participant(participant);
         if (pub) return ready && sent==(std::uint64_t)ntopics*nsamples?0:3;
         if (negative) return received==0 && bad==0?0:4;
