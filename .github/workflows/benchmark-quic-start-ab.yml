@@ -60,7 +60,9 @@ jobs:
           openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 1 -extfile server.ext >/dev/null 2>&1
           openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj '/CN=CitoQ Benchmark Client' >/dev/null 2>&1
           printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' 'extendedKeyUsage=clientAuth' > client.ext
-          openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out /tmp/server-check.pem -days 1 -extfile server.ext >/dev/null 2>&1
+          openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj '/CN=CitoQ Benchmark Client' >/dev/null 2>&1
+          printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' 'extendedKeyUsage=clientAuth' > client.ext
+          openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 1 -extfile client.ext >/dev/null 2>&1
           openssl verify -CAfile ca.pem -verify_ip 10.217.0.2 server.pem
           openssl verify -CAfile ca.pem -purpose sslclient client.pem
       - name: Run paired CitoQ baseline and START-on-SEND plus Zenoh
