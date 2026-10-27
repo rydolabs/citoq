@@ -74,6 +74,16 @@ def bench(engine,profile,rep,py,count,payload,rate,poll_mode,rx_sleep_us,rx_mode
     try: summary=json.loads(result.read_text())
     except Exception as exc: summary={"error":"result unavailable: "+str(exc)}
     if trace_stages and engine != "fastdds":
+        if engine == "citoq":
+            import re
+            for match in re.finditer(
+                r"CITOQ_NATIVE_RX_TIMING metric=(\S+) samples=(\d+) p50_us=([0-9.]+) p95_us=([0-9.]+) p99_us=([0-9.]+)",
+                receiver_out):
+                name, samples, p50, p95, p99 = match.groups()
+                summary[f"native_{name}_samples"] = int(samples)
+                summary[f"native_{name}_p50_us"] = float(p50)
+                summary[f"native_{name}_p95_us"] = float(p95)
+                summary[f"native_{name}_p99_us"] = float(p99)
         for line in sender_out.splitlines():
             if line.startswith("SENDER_STAGE_JSON="):
                 try:
