@@ -1,6 +1,7 @@
 #pragma once
 
 #include <citoq/detail/request_reply_core.hpp>
+#include <citoq/detail/recent_request_ids.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -415,9 +416,11 @@ public:
 
     RequestTransportCore(
         HostRuntimeCore& host,
-        RequestReplyCore& requests)
+        RequestReplyCore& requests,
+        std::size_t recent_request_limit = 1024)
         : host_(host),
-          requests_(requests) {}
+          requests_(requests),
+          recent_requests_(recent_request_limit) {}
 
     std::optional<
         RequestTransportSend>
@@ -548,6 +551,18 @@ public:
                 peer,
                 frame.request_id};
 
+        // Do not execute the same peer/session + RequestId twice,
+        // even after its first handler has already completed or cancelled.
+        // This is a bounded replay window, not a cross-reconnect guarantee.
+        if (recent_requests_.contains(peer, frame.request_id)) {
+            const auto reply =
+                encode_request_transport_reply(
+                    frame.request_id,
+                    RequestStatus::InvalidArgument,
+                    {});
+            return send_reply(reply);
+        }
+
         const auto [inbound_it, inserted] =
             inbound_.emplace(
                 inbound_key,
@@ -563,6 +578,13 @@ public:
 
             return send_reply(
                 reply);
+        }
+
+        try {
+            (void)recent_requests_.remember(peer, frame.request_id);
+        } catch (...) {
+            inbound_.erase(inbound_key);
+            throw;
         }
 
         auto reply_once =
@@ -875,6 +897,10 @@ public:
                 id);
         }
 
+        // MsQuic assigns a fresh peer id to each accepted connection.
+        // Releasing old tombstones bounds memory for short-lived sessions.
+        recent_requests_.forget_peer(peer);
+
         return
             handler_request_ids.size();
     }
@@ -887,6 +913,11 @@ public:
     std::size_t inbound_count()
         const noexcept {
         return inbound_.size();
+    }
+
+    std::size_t recent_request_count()
+        const noexcept {
+        return recent_requests_.size();
     }
 
 private:
@@ -949,6 +980,8 @@ private:
         RequestId,
         InboundRequestKeyHash>
         inbound_;
+
+    RecentRequestIds recent_requests_;
 };
 
 } // namespace citoq::detail
