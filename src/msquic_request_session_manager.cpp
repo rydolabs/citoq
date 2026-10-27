@@ -959,6 +959,8 @@ private:
         framed.reserve(bytes.size() + (first_packet ? 8u : 4u));
         if (first_packet) {
             framed.insert(framed.end(), {'C','Q','D','P'});
+            std::fprintf(stderr, "CITOQ_PERSISTENT_USED destination=%llu\n",
+                static_cast<unsigned long long>(destination));
         }
         const std::uint32_t size = static_cast<std::uint32_t>(bytes.size());
         for (unsigned shift = 0; shift < 32; shift += 8) {
@@ -1285,6 +1287,8 @@ private:
                 connected->second.get() == stream->connection.get() &&
                 connected->second->connected.load(std::memory_order_acquire)) {
                 persistent_peers_.insert(destination);
+                std::fprintf(stderr, "CITOQ_PERSISTENT_NEGOTIATED destination=%llu\n",
+                    static_cast<unsigned long long>(destination));
             }
             graceful_stream_finish(stream);
             return;
