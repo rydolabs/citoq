@@ -35,7 +35,7 @@ auto result =
 ```
 
 `request(...)` sends one typed request and awaits one typed reply.
-`handle(...)` registers the typed request handler. Remote transport and
+`handle(...)` registers a Context-owned handler; optional `on_request(...)` registers a scoped handler which unregisters when its returned handle is destroyed. Remote transport and
 Python/C ABI exposure remain later integration gates; they reuse this same
 runtime rather than introducing another RPC runtime.
 
@@ -56,11 +56,14 @@ Publish/Subscribe
 Request/Reply
   request
   handle
+  on_request (scoped opt-in)
 
 Lifecycle
   run
   stop/close
 ```
+
+`on_request()` is a separately scoped/RAII handler-registration option: **keep its returned handle alive**, or it will immediately unregister. The original `handle()` behavior remains Context-owned until explicit `.close()` or Context shutdown. This is source-compatible with existing applications.
 
 `subscribe()` registrations are owned by the `Context`: ignoring the returned
 handle keeps the subscription active until Context shutdown. The returned

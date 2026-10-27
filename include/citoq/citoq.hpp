@@ -943,6 +943,27 @@ public:
                     handler));
     }
 
+    // Scoped Request/Reply registration. Dropping the returned value
+    // unregisters it (unlike the Context-owned handle() registration).
+    // Keep the return value alive for as long as this handler must serve.
+    template <class RequestT, class F>
+    ScopedHandlerRegistration on_request(
+        F&& handler) {
+        return on_request<RequestT>(
+            "",
+            std::forward<F>(handler));
+    }
+
+    template <class RequestT, class F>
+    ScopedHandlerRegistration on_request(
+        std::string resource,
+        F&& handler) {
+        return ScopedHandlerRegistration(
+            handle<RequestT>(
+                std::move(resource),
+                std::forward<F>(handler)));
+    }
+
     template <class RequestT>
     Request<ReplyTypeT<RequestT>>
     request(

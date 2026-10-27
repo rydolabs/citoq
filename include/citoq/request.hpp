@@ -237,4 +237,44 @@ private:
     std::function<void()> close_;
 };
 
+ // Unlike handle(), on_request() is explicitly scoped. It unbinds the
+ // handler on destruction and on move assignment of an occupied handle.
+ // Using a separate wrapper preserves legacy handle() lifetime behavior.
+class ScopedHandlerRegistration {
+public:
+    ScopedHandlerRegistration() = default;
+
+    explicit ScopedHandlerRegistration(HandlerRegistration registration)
+        : registration_(std::move(registration)) {}
+
+    ScopedHandlerRegistration(const ScopedHandlerRegistration&) = delete;
+    ScopedHandlerRegistration& operator=(const ScopedHandlerRegistration&) =
+        delete;
+
+    ScopedHandlerRegistration(ScopedHandlerRegistration&&) noexcept = default;
+
+    ScopedHandlerRegistration& operator=(ScopedHandlerRegistration&& other) {
+        if (this != &other) {
+            close();
+            registration_ = std::move(other.registration_);
+        }
+        return *this;
+    }
+
+    ~ScopedHandlerRegistration() noexcept {
+        try {
+            close();
+        } catch (...) {
+            // Destructors cannot propagate handler deregistration failures.
+        }
+    }
+
+    void close() {
+        registration_.close();
+    }
+
+private:
+    HandlerRegistration registration_;
+};
+
 } // namespace citoq

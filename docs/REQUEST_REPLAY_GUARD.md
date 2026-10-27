@@ -25,3 +25,7 @@ A future opt-in `IdempotencyKey` must be stable across client retries, scoped by
 - **Router/hybrid, wildcard subscriptions, request_all**: defer until specific application need; current exact `Scope + Resource + Type` demand-index performance remains a core product design constraint.
 
 Source reference: user-provided `middleware_core_design.md`, sections 3.2/3.3 and 5 (request correlation, cancellation, idempotency). CitoQ source: `include/citoq/detail/request_transport.hpp`, `include/citoq/detail/request_reply_core.hpp` and `src/msquic_request_session_manager.cpp`.
+
+## API registration ergonomics from the reference design
+
+A separate `Context::on_request<T>(resource, handler)` scoped/RAII alias was introduced. Its `ScopedHandlerRegistration` releases handler registration on scope exit and on replacement, while the existing `Context::handle<T>()` continues to belong to Context lifetime. No existing API behavior is changed. The scoped variant is especially useful for temporary gateways and service lifetimes: forgetting to keep the handle deliberately unregisters immediately. It is *not* the same as an application idempotency policy.
