@@ -125,6 +125,20 @@ private:
             false};
     };
 
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+#if defined(CITOQ_QUIC_PERSISTENT_SHARDS)
+    static constexpr std::size_t kDataShards = CITOQ_QUIC_PERSISTENT_SHARDS;
+#else
+    static constexpr std::size_t kDataShards = 1;
+#endif
+    static_assert(kDataShards >= 1 && kDataShards <= 32,
+                  "persistent CTD1 sharding must be 1..32");
+    struct DataStreamGroup {
+        std::array<std::shared_ptr<StreamState>, kDataShards> streams{};
+        std::size_t next{0};
+    };
+#endif
+
 public:
     Impl(
         EmbeddedHostRuntime& runtime,
@@ -927,7 +941,8 @@ private:
             return;
         }
 
-        auto& stream = data_streams_[destination];
+        auto& group = data_streams_[destination];
+        auto& stream = group.streams[group.next++ % kDataShards];
         bool first_packet = false;
         if (!stream || stream->closed.load(std::memory_order_acquire) ||
             stream->connection.get() != connection->second.get()) {
@@ -1886,7 +1901,7 @@ private:
 #if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
     std::unordered_map<
         DestinationId,
-        std::shared_ptr<StreamState>> data_streams_;
+        DataStreamGroup> data_streams_;
     std::unordered_set<DestinationId> persistent_peers_;
 #endif
 
