@@ -161,6 +161,11 @@ def zenoh_run(args, collector):
     else:
         cfg.insert_json5("transport/link/protocols", '["tcp"]')
         protocol = "tcp"
+    # Peer mode may inherit a default TCP listening endpoint. Reset both
+    # endpoint collections so our QUIC-only protocol allowlist cannot conflict
+    # with an implicit TCP listener, or accidentally permit TCP fallback.
+    cfg.insert_json5("listen/endpoints", "[]")
+    cfg.insert_json5("connect/endpoints", "[]")
     if args.role=="receiver":
         cfg.insert_json5("listen/endpoints", json.dumps([f"{protocol}/0.0.0.0:7447"]))
     else:
