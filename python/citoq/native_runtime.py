@@ -56,8 +56,12 @@ class NativeRuntime:
         self._lib.citoq_native_open.restype = ctypes.c_void_p
         self._lib.citoq_native_poll.argtypes = [ctypes.c_void_p]
         self._lib.citoq_native_poll.restype = ctypes.c_size_t
-        self._lib.citoq_native_poll_wait.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-        self._lib.citoq_native_poll_wait.restype = ctypes.c_size_t
+        # Keep poll() usable with older native libraries that lack this new,
+        # optional symbol; only poll_wait() itself requires a matching library.
+        self._poll_wait_fn = getattr(self._lib, "citoq_native_poll_wait", None)
+        if self._poll_wait_fn is not None:
+            self._poll_wait_fn.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            self._poll_wait_fn.restype = ctypes.c_size_t
         self._lib.citoq_native_close.argtypes = [ctypes.c_void_p]
         self._options = _Options(
             coordinator, incarnation, destination,
@@ -82,9 +86,11 @@ class NativeRuntime:
         """
         if not self._handle:
             raise RuntimeError("Native runtime already closed")
-        if not 0 <= max_wait_ms <= 0xFFFFFFFF:
-            raise ValueError("max_wait_ms must be in [0, 2**32-1]")
-        return int(self._lib.citoq_native_poll_wait(self._handle, max_wait_ms))
+        if not isinstance(max_wait_ms, int) or not 0 <= max_wait_ms <= 0xFFFFFFFF:
+            raise ValueError("max_wait_ms must be an integer in [0, 2**32-1]")
+        if self._poll_wait_fn is None:
+            raise RuntimeError("poll_wait requires a newer native CitoQ runtime library")
+        return int(self._poll_wait_fn(self._handle, max_wait_ms))
 
     def close(self) -> None:
         if self._handle:
