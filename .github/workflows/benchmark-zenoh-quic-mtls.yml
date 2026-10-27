@@ -70,6 +70,24 @@ jobs:
           openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 1 -extfile client.ext >/dev/null 2>&1
           openssl verify -CAfile ca.pem -verify_ip 10.217.0.2 server.pem
           openssl verify -CAfile ca.pem -purpose sslclient client.pem
+      - name: Generate untrusted client CA/identity for negative authentication control
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd benchmark-certs
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+            -keyout rogue-ca.key -out rogue-ca.pem -subj '/CN=Untrusted Benchmark CA' \
+            -addext 'basicConstraints=critical,CA:TRUE' \
+            -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
+          openssl req -newkey rsa:2048 -nodes -keyout rogue-client.key \
+            -out rogue-client.csr -subj '/CN=Untrusted Benchmark Client' >/dev/null 2>&1
+          openssl x509 -req -in rogue-client.csr -CA rogue-ca.pem -CAkey rogue-ca.key \
+            -CAcreateserial -out rogue-client.pem -days 1 -extfile client.ext >/dev/null 2>&1
+          openssl verify -CAfile rogue-ca.pem -purpose sslclient rogue-client.pem
+          if openssl verify -CAfile ca.pem -purpose sslclient rogue-client.pem; then
+            echo "::error::Rogue client unexpectedly chains to trusted benchmark CA"
+            exit 1
+          fi
       - name: Compare CitoQ native mTLS-QUIC to Zenoh TCP and Zenoh mTLS-QUIC
         shell: bash
         run: |
@@ -97,6 +115,26 @@ jobs:
             echo "::endgroup::"
           done
           python3 bench/matrix/analyze_zenoh_quic_parity.py --root quic-parity-evidence --repeats 3 --payload 256 --rate 100
+      - name: Reject QUIC client signed by an untrusted CA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bench/matrix/check_zenoh_mtls_rejection.py
+          status=0
+          CITOQ_BENCH_RESOURCES=1 \
+            ZENOH_BENCH_ROGUE_CLIENT_CERT="$GITHUB_WORKSPACE/benchmark-certs/rogue-client.pem" \
+            ZENOH_BENCH_ROGUE_CLIENT_KEY="$GITHUB_WORKSPACE/benchmark-certs/rogue-client.key" \
+            python3 benchmark/run_comparison.py --python "$GITHUB_WORKSPACE/.venv/bin/python" \
+              --engines zenoh --zenoh-transport quic-mtls --repeats 1 \
+              --count 20 --rate 100 --payload 256 --profiles baseline \
+              --output-dir quic-parity-evidence/negative-rogue || status=$?
+          if [[ "$status" == 0 ]]; then
+            echo "::error::Rogue client unexpectedly passed the QUIC mTLS trial"
+            exit 1
+          fi
+          python3 bench/matrix/check_zenoh_mtls_rejection.py \
+            --root quic-parity-evidence/negative-rogue
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
