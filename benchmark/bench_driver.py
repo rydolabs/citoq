@@ -120,7 +120,12 @@ def citoq_run(args, collector):
                         time.sleep(rx_sleep)
             while time.monotonic()<until and len(collector.seen)<args.count:
                 service_receiver()
-            for _ in range(100):
+            # Match Zenoh's 80ms post-completion duplicate-observation
+            # grace period. Earlier this called poll_wait(10ms) 100 times,
+            # extending the CitoQ process lifetime by up to 1 second and
+            # skewing whole-process CPU/RSS comparisons.
+            grace_until=time.monotonic()+0.08
+            while time.monotonic()<grace_until:
                 service_receiver()
         else:
             ctx.advertise_raw(TYPE_ID, "robot_1")
