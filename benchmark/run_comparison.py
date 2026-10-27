@@ -77,7 +77,7 @@ def bench(engine,profile,rep,py,count,payload,rate,poll_mode,rx_sleep_us,rx_mode
         if engine == "citoq":
             import re
             for match in re.finditer(
-                r"CITOQ_NATIVE_RX_TIMING metric=(\\S+) samples=(\\d+) p50_us=([0-9.]+) p95_us=([0-9.]+) p99_us=([0-9.]+)",
+                r"CITOQ_NATIVE_RX_TIMING metric=(\S+) samples=(\d+) p50_us=([0-9.]+) p95_us=([0-9.]+) p99_us=([0-9.]+)",
                 receiver_out):
                 name, samples, p50, p95, p99 = match.groups()
                 summary[f"native_{name}_samples"] = int(samples)
