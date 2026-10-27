@@ -4,6 +4,9 @@ import asyncio
 import ctypes
 import os
 import weakref
+import time
+import statistics
+import json
 from pathlib import Path
 from typing import Any, Callable
 
@@ -420,6 +423,11 @@ class Context:
             HandlerRegistration] = set()
         self._requests: set[
             _NativeRequest] = set()
+        # Diagnostic opt-in (200-message study); never changes the public
+        # callback type or creates an additional callback/owner thread.
+        self._bench_py_trace = os.getenv("CITOQ_BENCH_PY_TRACE") == "1"
+        self._bench_copy_ns: list[int] = []
+        self._bench_handler_ns: list[int] = []
 
     def close(self) -> None:
         if not self._handle:
@@ -447,6 +455,17 @@ class Context:
             self._handle)
         self._handle = (
             ctypes.c_void_p())
+        if getattr(self, "_bench_py_trace", False) and self._bench_copy_ns:
+            def pct(values: list[int], ratio: float) -> int:
+                ordered = sorted(values)
+                return ordered[int((len(ordered) - 1) * ratio)]
+            print("CITOQ_PY_TRACE_JSON=" + json.dumps({
+                "samples": len(self._bench_copy_ns),
+                "payload_copy_median_ns": int(statistics.median(self._bench_copy_ns)),
+                "payload_copy_p95_ns": pct(self._bench_copy_ns, .95),
+                "user_handler_median_ns": int(statistics.median(self._bench_handler_ns)),
+                "user_handler_p95_ns": pct(self._bench_handler_ns, .95),
+            },sort_keys=True), flush=True)
 
     def _subscribe_raw(
         self,
@@ -465,10 +484,19 @@ class Context:
             payload: _U8P,
             payload_size: int,
         ) -> None:
-            handler(
-                ctypes.string_at(
-                    payload,
-                    payload_size))
+            if self._bench_py_trace:
+                t0 = time.monotonic_ns()
+                data = ctypes.string_at(payload, payload_size)
+                t1 = time.monotonic_ns()
+                handler(data)
+                t2 = time.monotonic_ns()
+                self._bench_copy_ns.append(t1 - t0)
+                self._bench_handler_ns.append(t2 - t1)
+            else:
+                handler(
+                    ctypes.string_at(
+                        payload,
+                        payload_size))
 
         callback = _CALLBACK(bridge)
         subscription = ctypes.c_void_p()

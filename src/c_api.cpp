@@ -14,7 +14,52 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#if defined(CITOQ_BENCH_ABI_TRACE) && CITOQ_BENCH_ABI_TRACE
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
+#include <vector>
+#endif
+
 namespace {
+
+#if defined(CITOQ_BENCH_ABI_TRACE) && CITOQ_BENCH_ABI_TRACE
+// Diagnostic-only bounded observation store. No per-message logging, and
+// only the first 4096 calls are kept. Printed once on library termination.
+class AbiCallbackTrace final {
+public:
+    void record(std::uint64_t ns) noexcept {
+        const auto i = count_.fetch_add(1, std::memory_order_relaxed);
+        if (i < durations_.size()) durations_[i] = ns;
+    }
+    ~AbiCallbackTrace() {
+        const auto n = std::min(count_.load(std::memory_order_relaxed),
+                                durations_.size());
+        if (n == 0) return;
+        std::vector<std::uint64_t> sorted(durations_.begin(),
+                                          durations_.begin()+n);
+        std::sort(sorted.begin(), sorted.end());
+        const auto percentile = [&](double p) {
+            return sorted[static_cast<std::size_t>((n - 1) * p)];
+        };
+        std::fprintf(stderr,
+            "CITOQ_ABI_TRACE_JSON={\"samples\":%zu,\"median_ns\":%llu,\"p95_ns\":%llu,\"p99_ns\":%llu}\n",
+            n,
+            static_cast<unsigned long long>(percentile(0.5)),
+            static_cast<unsigned long long>(percentile(0.95)),
+            static_cast<unsigned long long>(percentile(0.99)));
+    }
+private:
+    std::atomic<std::size_t> count_{0};
+    std::array<std::uint64_t,4096> durations_{};
+};
+AbiCallbackTrace& callback_trace() {
+    static AbiCallbackTrace trace;
+    return trace;
+}
+#endif
 
 bool valid_bytes(
     const void* data,
@@ -440,6 +485,9 @@ citoq_status_t citoq_context_subscribe(
                     std::span<
                         const std::uint8_t>
                         payload) {
+#if defined(CITOQ_BENCH_ABI_TRACE) && CITOQ_BENCH_ABI_TRACE
+                    const auto t0 = std::chrono::steady_clock::now();
+#endif
                     callback(
                         user_data,
                         id,
@@ -447,6 +495,11 @@ citoq_status_t citoq_context_subscribe(
                         name.size(),
                         payload.data(),
                         payload.size());
+#if defined(CITOQ_BENCH_ABI_TRACE) && CITOQ_BENCH_ABI_TRACE
+                    const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now() - t0).count();
+                    callback_trace().record(static_cast<std::uint64_t>(ns));
+#endif
                 });
 
         const auto interest =
