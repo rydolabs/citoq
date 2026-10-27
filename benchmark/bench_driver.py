@@ -231,6 +231,7 @@ def cyclone_run(args, collector):
 def paced_send(args, fn, service=None, wait_for_match=False):
     next_ns=now_ns()
     interval=int(1e9/args.rate)
+    trace_stages=getattr(args, "trace_stages", False)
     api_ns=[]
     post_poll_ns=[]
     pre_api_ns=[]
@@ -240,17 +241,17 @@ def paced_send(args, fn, service=None, wait_for_match=False):
             if service:
                 service()
             packet=make_payload(n,args.payload)
-            called_at=now_ns() if args.trace_stages else 0
+            called_at=now_ns() if trace_stages else 0
             success=fn(packet)
-            returned_at=now_ns() if args.trace_stages else 0
+            returned_at=now_ns() if trace_stages else 0
             if success:
                 # CitoQ publishes to the loop-owner queue. With immediate
                 # mode a second poll services that queue in this same tick.
                 if service and args.citoq_poll_mode == "immediate":
                     service()
-                    if args.trace_stages:
+                    if trace_stages:
                         post_poll_ns.append(now_ns()-returned_at)
-                if args.trace_stages:
+                if trace_stages:
                     api_ns.append(returned_at-called_at)
                     pre_api_ns.append(called_at-STRUCT.unpack_from(packet)[1])
                 break
@@ -260,7 +261,7 @@ def paced_send(args, fn, service=None, wait_for_match=False):
         next_ns+=interval
         delay=(next_ns-now_ns())/1e9
         if delay>0: time.sleep(delay)
-    if args.trace_stages:
+    if trace_stages:
         def percentile_ns(values, part):
             arr=sorted(values)
             return (arr[min(len(arr)-1,int(round((len(arr)-1)*part)))]/1000
