@@ -264,6 +264,22 @@ LinuxRequestRuntimeDriver::stop()
 
 std::size_t
 LinuxRequestRuntimeDriver::
+poll_wait(std::uint32_t max_wait_ms) {
+    const auto ready = poll_once();
+    if (ready != 0 || max_wait_ms == 0) {
+        return ready;
+    }
+
+    // Existing run() wake plumbing also wakes explicit single-thread callers.
+    // Bound user-requested waits by the same lease and deadline scheduling.
+    wait_for_event(static_cast<int>(
+        std::min(max_wait_ms,
+                 static_cast<std::uint32_t>(INT_MAX))));
+    return poll_once();
+}
+
+std::size_t
+LinuxRequestRuntimeDriver::
 poll_once() {
     std::size_t work = 0;
 
@@ -396,7 +412,7 @@ wait_timeout_ms()
 
 void
 LinuxRequestRuntimeDriver::
-wait_for_event() {
+wait_for_event(int max_wait_ms) {
     pollfd fds[2]{
         {
             control_.native_fd(),
@@ -412,7 +428,7 @@ wait_for_event() {
             ::poll(
                 fds,
                 2,
-                wait_timeout_ms());
+                std::min(wait_timeout_ms(), max_wait_ms));
 
         if (result >= 0) {
             break;

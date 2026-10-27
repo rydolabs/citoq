@@ -110,12 +110,18 @@ def citoq_run(args, collector):
                     collector.invalid += 1
             ctx.subscribe_raw(TYPE_ID, receive, "robot_1")
             until=time.monotonic()+args.timeout
+            rx_sleep = args.citoq_rx_sleep_us / 1_000_000
+            def service_receiver():
+                if args.citoq_rx_mode == "event":
+                    transport.poll_wait(args.citoq_rx_wait_ms)
+                else:
+                    transport.poll()
+                    if rx_sleep:
+                        time.sleep(rx_sleep)
             while time.monotonic()<until and len(collector.seen)<args.count:
-                transport.poll()
-                time.sleep(.0005)
+                service_receiver()
             for _ in range(100):
-                transport.poll()
-                time.sleep(.0005)
+                service_receiver()
         else:
             ctx.advertise_raw(TYPE_ID, "robot_1")
             paced_send(args, lambda b: ctx.publish_raw(TYPE_ID, b, "robot_1"),
@@ -252,6 +258,12 @@ def main():
     ap.add_argument("--timeout",type=float,default=16)
     ap.add_argument("--citoq-poll-mode",choices=("immediate","legacy"),default="immediate",
                     help="immediate services queued QUIC send after publish; legacy reproduces the 10ms benchmark bug")
+    ap.add_argument("--citoq-rx-sleep-us",type=int,default=500,
+                    help="receiver poll-loop sleep in microseconds; 0 means busy polling (diagnostic only)")
+    ap.add_argument("--citoq-rx-mode",choices=("sleep","event"),default="sleep",
+                    help="event uses kernel wakeup + owner-thread poll_wait without busy spin")
+    ap.add_argument("--citoq-rx-wait-ms",type=int,default=10,
+                    help="maximum time for event-driven poll_wait")
     ap.add_argument("--ca")
     ap.add_argument("--cert")
     ap.add_argument("--key")
@@ -259,8 +271,10 @@ def main():
     ap.add_argument("--client-key")
     ap.add_argument("--result")
     args=ap.parse_args()
-    if args.count<1 or args.payload<16 or args.rate<=0:
-        ap.error("count>0, payload>=16, rate>0 required")
+    if (args.count<1 or args.payload<16 or args.rate<=0 or
+            not 0<=args.citoq_rx_sleep_us<=1_000_000 or
+            not 0<=args.citoq_rx_wait_ms<=1000):
+        ap.error("count>0, payload>=16, rate>0, 0<=rx-sleep-us<=1000000 and 0<=rx-wait-ms<=1000 required")
     collector=Collector(args.count,args.payload,{})
     engine={"citoq":citoq_run,"zenoh":zenoh_run,"cyclonedds":cyclone_run}[args.engine]
     try:

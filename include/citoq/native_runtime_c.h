@@ -32,6 +32,10 @@ typedef struct citoq_native_options {
 CITOQ_NATIVE_API citoq_native_runtime_t* citoq_native_open(
     const citoq_native_options_t* options);
 CITOQ_NATIVE_API size_t citoq_native_poll(citoq_native_runtime_t* runtime);
+/* Single-owner event-driven poll, max_wait_ms bounds blocking and can be 0.
+   Context callbacks execute synchronously on the calling owner thread. */
+CITOQ_NATIVE_API size_t citoq_native_poll_wait(
+    citoq_native_runtime_t* runtime, uint32_t max_wait_ms);
 CITOQ_NATIVE_API void citoq_native_close(citoq_native_runtime_t* runtime);
 #ifdef __cplusplus
 }
