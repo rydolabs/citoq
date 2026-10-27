@@ -692,7 +692,7 @@ int main() {
     // Peer teardown drops session-scoped tombstones; new sessions are
     // assigned new identities by the QUIC listener.
     assert(guard_transport.drop_peer(600) == 0);
-    assert(guard_transport.recent_request_count() == 1);
+    assert(guard_transport.recent_request_count() == 0);
     assert(probe(600, 2) == RequestStatus::Ok);
     assert(guard_calls == 5);
 
