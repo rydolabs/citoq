@@ -1,0 +1,49 @@
+name: 'CitoQ offline handoff source snapshot'
+on:
+  push:
+    branches: ['handoff/source-bundle-20261027']
+    paths: ['.github/workflows/handoff-source-snapshot.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export exact pinned main and PR source snapshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p citoq-handoff-source
+          # Fetch each exact commit explicitly. Never guess a moving branch tip.
+          git fetch origin 08188eba73284dd1069016174ad216f5e02d2cfa 2eb5fcb73353da834aa7615b415579bdfdb79d5c 30c7fb2a77a82fdfc41a17fb737c15bb579a7935 7e556e2cc59f4b0acf9d0f80cdca6eca4bc41dd4
+          for sha in 08188eba73284dd1069016174ad216f5e02d2cfa 2eb5fcb73353da834aa7615b415579bdfdb79d5c 30c7fb2a77a82fdfc41a17fb737c15bb579a7935 7e556e2cc59f4b0acf9d0f80cdca6eca4bc41dd4; do
+            git cat-file -e "$sha^{commit}"
+          done
+          git archive --format=zip --prefix=citoq-main/ 08188eba73284dd1069016174ad216f5e02d2cfa > citoq-handoff-source/citoq-main-source.zip
+          git archive --format=zip --prefix=citoq-pr7/ 2eb5fcb73353da834aa7615b415579bdfdb79d5c > citoq-handoff-source/citoq-pr7-bench-source.zip
+          git archive --format=zip --prefix=citoq-pr8/ 30c7fb2a77a82fdfc41a17fb737c15bb579a7935 > citoq-handoff-source/citoq-pr8-perf-source.zip
+          git archive --format=zip --prefix=citoq-pr9/ 7e556e2cc59f4b0acf9d0f80cdca6eca4bc41dd4 > citoq-handoff-source/citoq-pr9-design-source.zip
+          # Offline clone preserving branch history and exact commits.
+          git bundle create citoq-handoff-source/citoq-all-refs.bundle --all
+          cat > citoq-handoff-source/SOURCE_REFS.txt <<'EOF'
+          MAIN_SHA=08188eba73284dd1069016174ad216f5e02d2cfa
+          PR7_SHA=2eb5fcb73353da834aa7615b415579bdfdb79d5c
+          PR8_SHA=30c7fb2a77a82fdfc41a17fb737c15bb579a7935
+          PR9_SHA=7e556e2cc59f4b0acf9d0f80cdca6eca4bc41dd4
+          Repo: https://github.com/rydolabs/citoq
+          All source archives are exported directly by git archive from verified commits.
+          EOF
+          sha256sum citoq-handoff-source/* > citoq-handoff-source/SHA256SUMS.txt
+          du -h citoq-handoff-source/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: citoq-offline-handoff-sources-20261027
+          path: citoq-handoff-source/
+          if-no-files-found: error
+          retention-days: 14
