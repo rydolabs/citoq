@@ -18,6 +18,13 @@
 #include <utility>
 #include <vector>
 
+// Experimental compile-time switch isolates the MsQuic-documented one-call
+// StreamOpen + StreamSend(START|FIN) path for same-source A/B measurements.
+// Default behavior is intentionally unchanged until verified.
+#ifndef CITOQ_QUIC_START_WITH_SEND
+#define CITOQ_QUIC_START_WITH_SEND 0
+#endif
+
 namespace citoq::detail {
 
 namespace {
@@ -832,6 +839,7 @@ private:
         stream->handle =
             handle;
 
+#if !CITOQ_QUIC_START_WITH_SEND
         if (QUIC_FAILED(
                 api_->StreamStart(
                     handle,
@@ -845,10 +853,22 @@ private:
                 destination);
             return;
         }
+#endif
 
         if (!send_on_stream(
                 stream,
-                std::move(bytes))) {
+                std::move(bytes),
+                CITOQ_QUIC_START_WITH_SEND != 0)) {
+#if CITOQ_QUIC_START_WITH_SEND
+            // StreamSend(START|FIN) failed before it queued any send, so
+            // a SHUTDOWN_COMPLETE callback cannot be assumed for cleanup.
+            if (!stream->closed.exchange(
+                    true, std::memory_order_acq_rel)) {
+                api_->StreamClose(handle);
+            }
+            stream->handle = nullptr;
+            delete context;
+#else
             if (
                 stream->handle &&
                 !stream->closed.load(
@@ -858,7 +878,7 @@ private:
                     QUIC_STREAM_SHUTDOWN_FLAG_ABORT,
                     0);
             }
-
+#endif
             transport_failed(
                 destination);
         }
@@ -868,7 +888,8 @@ private:
         const std::shared_ptr<
             StreamState>& stream,
         std::vector<std::uint8_t>
-            bytes) {
+            bytes,
+        bool start_with_send = false) {
         if (
             !stream ||
             !stream->handle ||
@@ -892,7 +913,11 @@ private:
                     stream->handle,
                     &send->buffer,
                     1,
-                    QUIC_SEND_FLAG_FIN,
+                    start_with_send
+                        ? static_cast<QUIC_SEND_FLAGS>(
+                              QUIC_SEND_FLAG_START |
+                              QUIC_SEND_FLAG_FIN)
+                        : QUIC_SEND_FLAG_FIN,
                     send))) {
             outstanding_sends_
                 .fetch_sub(
@@ -1522,6 +1547,19 @@ private:
             stream_context->state;
 
         switch (event->Type) {
+            case QUIC_STREAM_EVENT_START_COMPLETE:
+                // The async START-on-SEND path may report a failed start
+                // even after StreamSend accepted its buffer. This is the
+                // only callback guaranteed after a failed StreamStart.
+                if (QUIC_FAILED(event->START_COMPLETE.Status)) {
+                    if (!stream->closed.exchange(
+                            true, std::memory_order_acq_rel)) {
+                        self->api_->StreamClose(stream_handle);
+                        delete stream_context;
+                    }
+                }
+                break;
+
             case QUIC_STREAM_EVENT_RECEIVE: {
                 std::size_t total = 0;
 
