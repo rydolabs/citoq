@@ -839,6 +839,7 @@ private:
         stream->handle =
             handle;
 
+#if !defined(CITOQ_QUIC_SEND_START) || !CITOQ_QUIC_SEND_START
         if (QUIC_FAILED(
                 api_->StreamStart(
                     handle,
@@ -852,6 +853,7 @@ private:
                 destination);
             return;
         }
+#endif
 
 #if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
         const auto trace_after_start = std::chrono::steady_clock::now();
@@ -872,6 +874,17 @@ private:
             static_cast<int>(queued));
 #endif
         if (!queued) {
+#if defined(CITOQ_QUIC_SEND_START) && CITOQ_QUIC_SEND_START
+            // An unsuccessful send could not start this stream. No shutdown
+            // callback can be expected for an unstarted handle, so close it
+            // and dispose of our callback context synchronously.
+            if (stream->handle) {
+                api_->StreamClose(stream->handle);
+                stream->handle = nullptr;
+                stream->closed.store(true, std::memory_order_release);
+                delete context;
+            }
+#else
             if (
                 stream->handle &&
                 !stream->closed.load(
@@ -881,6 +894,7 @@ private:
                     QUIC_STREAM_SHUTDOWN_FLAG_ABORT,
                     0);
             }
+#endif
 
             transport_failed(
                 destination);
@@ -910,12 +924,23 @@ private:
                 1,
                 std::memory_order_relaxed);
 
+#if defined(CITOQ_QUIC_SEND_START) && CITOQ_QUIC_SEND_START
+        // MsQuic documents START as an asynchronous equivalent of StreamStart.
+        // Only locally initiated streams need START. Accepted inbound streams
+        // (including request replies) are already started by the peer.
+        const auto flags = stream->server_side
+            ? QUIC_SEND_FLAG_FIN
+            : static_cast<QUIC_SEND_FLAGS>(
+                QUIC_SEND_FLAG_FIN | QUIC_SEND_FLAG_START);
+#else
+        const auto flags = QUIC_SEND_FLAG_FIN;
+#endif
         if (QUIC_FAILED(
                 api_->StreamSend(
                     stream->handle,
                     &send->buffer,
                     1,
-                    QUIC_SEND_FLAG_FIN,
+                    flags,
                     send))) {
             outstanding_sends_
                 .fetch_sub(
