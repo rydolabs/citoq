@@ -12,7 +12,7 @@ import os
 import struct
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 TYPE_ID = 424242
@@ -44,8 +44,10 @@ class Collector:
     invalid: int = 0
     first_ns: int = 0
     last_ns: int = 0
+    callback_entry_delta_ns: list = field(default_factory=list)
+    callback_decode_ns: list = field(default_factory=list)
 
-    def ingest(self, seq, sent_ns, data_len):
+    def ingest(self, seq, sent_ns, data_len, entry_ns=None):
         receive_ns = now_ns()
         if not (1 <= seq <= self.expected) or data_len != self.size or sent_ns <= 0:
             self.invalid += 1
@@ -57,15 +59,21 @@ class Collector:
                 self.invalid += 1
             else:
                 self.seen[seq] = delta
+                if entry_ns is not None and sent_ns <= entry_ns <= receive_ns:
+                    self.callback_entry_delta_ns.append(entry_ns - sent_ns)
+                    self.callback_decode_ns.append(receive_ns - entry_ns)
                 self.first_ns = self.first_ns or receive_ns
                 self.last_ns = receive_ns
 
     def report(self, engine):
         times = sorted(self.seen.values())
-        def percentile(p):
-            if not times:
+        def percentile_of(series,p):
+            seq = sorted(series)
+            if not seq:
                 return None
-            return times[min(len(times)-1, int(round((len(times)-1)*p)))] / 1000
+            return seq[min(len(seq)-1, int(round((len(seq)-1)*p)))] / 1000
+        def percentile(p):
+            return percentile_of(times,p)
         return {
             "engine": engine,
             "expected": self.expected,
@@ -77,6 +85,8 @@ class Collector:
             "latency_us_p50": percentile(.50),
             "latency_us_p95": percentile(.95),
             "latency_us_p99": percentile(.99),
+            "callback_entry_us_p95": percentile_of(self.callback_entry_delta_ns,.95),
+            "callback_decode_us_p95": percentile_of(self.callback_decode_ns,.95),
             "delivery_window_ms": max(0, (self.last_ns-self.first_ns)/1e6),
             "complete": len(times)==self.expected and self.duplicates==0 and self.invalid==0,
         }
@@ -103,9 +113,10 @@ def citoq_run(args, collector):
     ) as transport, citoq.Context("acme") as ctx:
         if server:
             def receive(raw):
+                entered = now_ns() if args.trace_stages else None
                 try:
                     seq, stamp = unpack_payload(raw)
-                    collector.ingest(seq, stamp, len(raw))
+                    collector.ingest(seq, stamp, len(raw), entered)
                 except Exception:
                     collector.invalid += 1
             ctx.subscribe_raw(TYPE_ID, receive, "robot_1")
@@ -147,10 +158,11 @@ def zenoh_run(args, collector):
     with zenoh.open(cfg) as session:
         if args.role=="receiver":
             def receive(sample):
+                entered = now_ns() if args.trace_stages else None
                 try:
                     raw=sample.payload.to_bytes()
                     seq,stamp=unpack_payload(raw)
-                    collector.ingest(seq,stamp,len(raw))
+                    collector.ingest(seq,stamp,len(raw),entered)
                 except Exception:
                     collector.invalid+=1
             with session.declare_subscriber(TOPIC, receive):
@@ -219,18 +231,29 @@ def cyclone_run(args, collector):
 def paced_send(args, fn, service=None, wait_for_match=False):
     next_ns=now_ns()
     interval=int(1e9/args.rate)
+    trace_stages=getattr(args, "trace_stages", False)
+    api_ns=[]
+    post_poll_ns=[]
+    pre_api_ns=[]
     for n in range(1,args.count+1):
         deadline=time.monotonic()+args.timeout
         while True:
             if service:
                 service()
-            success=fn(make_payload(n,args.payload))
+            packet=make_payload(n,args.payload)
+            called_at=now_ns() if trace_stages else 0
+            success=fn(packet)
+            returned_at=now_ns() if trace_stages else 0
             if success:
-                # publish_raw() queues a QUIC send on the loop owner. Without
-                # this poll the queued packet sits until the *next* 100 Hz
-                # publish, adding a full 10 ms to the measured one-way delay.
+                # CitoQ publishes to the loop-owner queue. With immediate
+                # mode a second poll services that queue in this same tick.
                 if service and args.citoq_poll_mode == "immediate":
                     service()
+                    if trace_stages:
+                        post_poll_ns.append(now_ns()-returned_at)
+                if trace_stages:
+                    api_ns.append(returned_at-called_at)
+                    pre_api_ns.append(called_at-STRUCT.unpack_from(packet)[1])
                 break
             if not wait_for_match or time.monotonic()>deadline:
                 raise RuntimeError("no eligible subscribers for sample "+str(n))
@@ -238,6 +261,19 @@ def paced_send(args, fn, service=None, wait_for_match=False):
         next_ns+=interval
         delay=(next_ns-now_ns())/1e9
         if delay>0: time.sleep(delay)
+    if trace_stages:
+        def percentile_ns(values, part):
+            arr=sorted(values)
+            return (arr[min(len(arr)-1,int(round((len(arr)-1)*part)))]/1000
+                    if arr else None)
+        print("SENDER_STAGE_JSON="+json.dumps({
+            "stage_successful_sends":len(api_ns),
+            "sender_pre_api_us_p95":percentile_ns(pre_api_ns,.95),
+            "sender_api_us_p50":percentile_ns(api_ns,.50),
+            "sender_api_us_p95":percentile_ns(api_ns,.95),
+            "sender_post_poll_us_p50":percentile_ns(post_poll_ns,.50),
+            "sender_post_poll_us_p95":percentile_ns(post_poll_ns,.95),
+        },sort_keys=True),flush=True)
     print(f"SENDER_OK engine={args.engine} sent={args.count}",flush=True)
 
 
@@ -264,6 +300,8 @@ def main():
                     help="event uses kernel wakeup + owner-thread poll_wait without busy spin")
     ap.add_argument("--citoq-rx-wait-ms",type=int,default=10,
                     help="maximum time for event-driven poll_wait")
+    ap.add_argument("--trace-stages",action="store_true",
+                    help="diagnostic application-stage timing; adds timestamp overhead")
     ap.add_argument("--ca")
     ap.add_argument("--cert")
     ap.add_argument("--key")
