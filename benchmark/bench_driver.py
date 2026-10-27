@@ -154,8 +154,14 @@ def zenoh_run(args, collector):
             tls.update(listen_certificate=str(args.cert),
                        listen_private_key=str(args.key))
         else:
-            tls.update(connect_certificate=str(args.client_cert),
-                       connect_private_key=str(args.client_key))
+            # Research negative control: present an otherwise valid client key
+            # pair signed by an untrusted CA; only the server should reject it.
+            # Never change the trusted server CA or disable hostname checking.
+            tls.update(
+                connect_certificate=os.environ.get(
+                    "ZENOH_BENCH_ROGUE_CLIENT_CERT",str(args.client_cert)),
+                connect_private_key=os.environ.get(
+                    "ZENOH_BENCH_ROGUE_CLIENT_KEY",str(args.client_key)))
         cfg.insert_json5("transport/link/tls", json.dumps(tls))
         protocol = "quic"
     else:
