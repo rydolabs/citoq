@@ -455,7 +455,7 @@ class Context:
             self._handle)
         self._handle = (
             ctypes.c_void_p())
-        if self._bench_py_trace and self._bench_copy_ns:
+        if getattr(self, "_bench_py_trace", False) and self._bench_copy_ns:
             def pct(values: list[int], ratio: float) -> int:
                 ordered = sorted(values)
                 return ordered[int((len(ordered) - 1) * ratio)]
