@@ -61,6 +61,11 @@ public:
     // tests and future composition with a larger CitoQ loop.
     std::size_t poll_once();
 
+    // Single-owner blocking progression: process ready work, wait on control
+    // socket / QUIC wake fd (bounded by max_wait_ms), then process completions.
+    // No worker thread and no application callback on a foreign thread.
+    std::size_t poll_wait(std::uint32_t max_wait_ms);
+
     // Owner-thread explicit publisher intent for Discovery-driven data routes.
     bool ensure_data(const InterestKey& key);
     bool release_data(const InterestKey& key);
@@ -90,7 +95,7 @@ private:
     int wait_timeout_ms()
         const noexcept;
 
-    void wait_for_event();
+    void wait_for_event(int max_wait_ms = 50);
     void wake() noexcept;
     void drain_wake() noexcept;
 
