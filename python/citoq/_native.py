@@ -46,6 +46,11 @@ _REQUEST_INVALID_ARGUMENT = 3
 _REQUEST_DEADLINE_EXCEEDED = 4
 _REQUEST_INTERNAL = 5
 
+# Diagnostic switch for same-source A/B. Keep the ordinary ctypes array-copy
+# path by default until performance and buffer-lifetime compatibility are
+# validated by real public Context and C ABI tests.
+_FAST_PUBLISH_POINTERS = os.environ.get("CITOQ_EXPERIMENT_FAST_PUBLISH_POINTERS") == "1"
+
 
 def _load() -> ctypes.CDLL:
     explicit = os.environ.get(
@@ -958,14 +963,26 @@ class Context:
         resource: str = "",
     ) -> int:
         data = bytes(payload)
-        raw, buffer = _text(resource)
-
-        payload_buffer = (
-            (ctypes.c_uint8 * len(data))
-            .from_buffer_copy(data)
-            if data
-            else
-            (ctypes.c_uint8 * 1)())
+        if _FAST_PUBLISH_POINTERS:
+            # ctypes.c_char_p references the immutable bytes object's
+            # storage without allocating/copying a second payload array.
+            # Hold both pointer owners until the C ABI has synchronously
+            # consumed these spans. Explicit sizes preserve embedded NUL.
+            raw = resource.encode("utf-8")
+            resource_owner = ctypes.c_char_p(raw)
+            payload_owner = ctypes.c_char_p(data)
+            resource_ptr = ctypes.cast(resource_owner, _CHARP)
+            payload_ptr = ctypes.cast(payload_owner, _U8P)
+        else:
+            raw, resource_owner = _text(resource)
+            payload_owner = (
+                (ctypes.c_uint8 * len(data))
+                .from_buffer_copy(data)
+                if data
+                else
+                (ctypes.c_uint8 * 1)())
+            resource_ptr = ctypes.cast(resource_owner, _CHARP)
+            payload_ptr = ctypes.cast(payload_owner, _U8P)
 
         delivered = ctypes.c_size_t()
 
@@ -973,13 +990,9 @@ class Context:
             _lib.citoq_context_publish(
                 self._handle,
                 int(type_id),
-                ctypes.cast(
-                    buffer,
-                    _CHARP),
+                resource_ptr,
                 len(raw),
-                ctypes.cast(
-                    payload_buffer,
-                    _U8P),
+                payload_ptr,
                 len(data),
                 ctypes.byref(
                     delivered)))
