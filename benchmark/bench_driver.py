@@ -110,12 +110,15 @@ def citoq_run(args, collector):
                     collector.invalid += 1
             ctx.subscribe_raw(TYPE_ID, receive, "robot_1")
             until=time.monotonic()+args.timeout
+            rx_sleep = args.citoq_rx_sleep_us / 1_000_000
             while time.monotonic()<until and len(collector.seen)<args.count:
                 transport.poll()
-                time.sleep(.0005)
+                if rx_sleep:
+                    time.sleep(rx_sleep)
             for _ in range(100):
                 transport.poll()
-                time.sleep(.0005)
+                if rx_sleep:
+                    time.sleep(rx_sleep)
         else:
             ctx.advertise_raw(TYPE_ID, "robot_1")
             paced_send(args, lambda b: ctx.publish_raw(TYPE_ID, b, "robot_1"),
@@ -252,6 +255,8 @@ def main():
     ap.add_argument("--timeout",type=float,default=16)
     ap.add_argument("--citoq-poll-mode",choices=("immediate","legacy"),default="immediate",
                     help="immediate services queued QUIC send after publish; legacy reproduces the 10ms benchmark bug")
+    ap.add_argument("--citoq-rx-sleep-us",type=int,default=500,
+                    help="receiver poll-loop sleep in microseconds; 0 means busy polling (diagnostic only)")
     ap.add_argument("--ca")
     ap.add_argument("--cert")
     ap.add_argument("--key")
@@ -259,8 +264,8 @@ def main():
     ap.add_argument("--client-key")
     ap.add_argument("--result")
     args=ap.parse_args()
-    if args.count<1 or args.payload<16 or args.rate<=0:
-        ap.error("count>0, payload>=16, rate>0 required")
+    if args.count<1 or args.payload<16 or args.rate<=0 or not 0<=args.citoq_rx_sleep_us<=1_000_000:
+        ap.error("count>0, payload>=16, rate>0, 0<=citoq-rx-sleep-us<=1000000 required")
     collector=Collector(args.count,args.payload,{})
     engine={"citoq":citoq_run,"zenoh":zenoh_run,"cyclonedds":cyclone_run}[args.engine]
     try:
