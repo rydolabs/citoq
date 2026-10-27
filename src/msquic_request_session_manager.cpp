@@ -17,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -497,6 +498,7 @@ public:
         outbound_.clear();
 #if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
         data_streams_.clear();
+        persistent_peers_.clear();
 #endif
 
         for (const auto& [peer, _] :
@@ -727,6 +729,7 @@ private:
         DestinationId destination) {
 #if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
         data_streams_.erase(destination);
+        persistent_peers_.erase(destination);
 #endif
         const auto it =
             outbound_.find(
@@ -795,7 +798,8 @@ private:
         std::vector<std::uint8_t>
             bytes) {
 #if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
-        if (bytes.size() >= 4 && bytes[0] == 'C' && bytes[1] == 'T' &&
+        if (persistent_peers_.contains(destination) &&
+            bytes.size() >= 4 && bytes[0] == 'C' && bytes[1] == 'T' &&
             bytes[2] == 'D' && bytes[3] == '1') {
             send_persistent_data(destination, std::move(bytes));
             return;
@@ -1084,6 +1088,15 @@ private:
                         destination,
                         bytes);
                 });
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+        // Best-effort capability probe over the existing authenticated QUIC
+        // stream protocol. A legacy listener ignores unknown CQPN magic.
+        // Until CQPA is received, continue using original CTD1 wire framing.
+        persistent_peers_.erase(state->destination);
+        data_streams_.erase(state->destination);
+        send_packet(state->destination,
+                    std::vector<std::uint8_t>{'C','Q','P','N'});
+#endif
     }
 
     void on_connection_closed(
@@ -1115,6 +1128,7 @@ private:
                 outbound_.erase(it);
 #if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
                 data_streams_.erase(state->destination);
+                persistent_peers_.erase(state->destination);
 #endif
 
                 if (
@@ -1244,6 +1258,38 @@ private:
                 stream);
             return;
         }
+
+#if defined(CITOQ_QUIC_PERSISTENT_CTD1) && CITOQ_QUIC_PERSISTENT_CTD1
+        // An opt-in peer announces persistent CTD1 support on an ordinary
+        // authenticated bidirectional QUIC stream. Legacy peers ignore this
+        // magic and receive only existing unmodified CTD1 frames.
+        if (stream->received.size() == 4 && stream->server_side &&
+            stream->received[0] == 'C' && stream->received[1] == 'Q' &&
+            stream->received[2] == 'P' && stream->received[3] == 'N') {
+            if (options_.require_client_certificate) {
+                std::vector<std::uint8_t> acknowledgement{'C','Q','P','A'};
+                if (!send_on_stream(stream, std::move(acknowledgement))) {
+                    graceful_stream_finish(stream);
+                }
+            } else {
+                graceful_stream_finish(stream);
+            }
+            return;
+        }
+        if (stream->received.size() == 4 && !stream->server_side &&
+            stream->received[0] == 'C' && stream->received[1] == 'Q' &&
+            stream->received[2] == 'P' && stream->received[3] == 'A') {
+            const auto destination = stream->connection->destination;
+            const auto connected = outbound_.find(destination);
+            if (connected != outbound_.end() &&
+                connected->second.get() == stream->connection.get() &&
+                connected->second->connected.load(std::memory_order_acquire)) {
+                persistent_peers_.insert(destination);
+            }
+            graceful_stream_finish(stream);
+            return;
+        }
+#endif
 
         // Data is admitted only when the listener required a validated
         // client certificate. Legacy unauthenticated RPC remains separate.
@@ -1837,6 +1883,7 @@ private:
     std::unordered_map<
         DestinationId,
         std::shared_ptr<StreamState>> data_streams_;
+    std::unordered_set<DestinationId> persistent_peers_;
 #endif
 
     std::unordered_map<
