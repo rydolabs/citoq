@@ -75,15 +75,15 @@ private:
             std::uint8_t> bytes;
         QUIC_BUFFER buffer{};
 
+        // The event queue already owns a copy of the packet. Move it into
+        // MsQuic's SEND_COMPLETE-lifetime buffer instead of copying again.
         SendContext(
             Impl* owner,
-            std::span<
-                const std::uint8_t>
+            std::vector<std::uint8_t>
                 source)
             : impl(owner),
               bytes(
-                  source.begin(),
-                  source.end()) {
+                  std::move(source)) {
             buffer.Length =
                 static_cast<
                     std::uint32_t>(
@@ -773,7 +773,7 @@ private:
                  std::move(owned)] {
                 send_packet(
                     destination,
-                    owned);
+                    std::move(owned));
             });
 
         return true;
@@ -781,7 +781,7 @@ private:
 
     void send_packet(
         DestinationId destination,
-        std::span<const std::uint8_t>
+        std::vector<std::uint8_t>
             bytes) {
         const auto it =
             outbound_.find(
@@ -848,7 +848,7 @@ private:
 
         if (!send_on_stream(
                 stream,
-                bytes)) {
+                std::move(bytes))) {
             if (
                 stream->handle &&
                 !stream->closed.load(
@@ -867,7 +867,7 @@ private:
     bool send_on_stream(
         const std::shared_ptr<
             StreamState>& stream,
-        std::span<const std::uint8_t>
+        std::vector<std::uint8_t>
             bytes) {
         if (
             !stream ||
@@ -880,7 +880,7 @@ private:
         auto* send =
             new SendContext(
                 this,
-                bytes);
+                std::move(bytes));
 
         outstanding_sends_
             .fetch_add(
@@ -1063,10 +1063,17 @@ private:
             return;
         }
 
-        stream->received.insert(
-            stream->received.end(),
-            bytes.begin(),
-            bytes.end());
+        // The MsQuic RECEIVE callback aggregated these bytes into a
+        // uniquely-owned vector. Most messages arrive as one receive event:
+        // steal its allocation instead of allocating and copying again.
+        if (stream->received.empty()) {
+            stream->received = std::move(bytes);
+        } else {
+            stream->received.insert(
+                stream->received.end(),
+                bytes.begin(),
+                bytes.end());
+        }
 
         if (!peer_done) {
             return;
@@ -1215,7 +1222,7 @@ private:
 
                                     if (!send_on_stream(
                                             target,
-                                            owned)) {
+                                            std::move(owned))) {
                                         graceful_stream_finish(
                                             target);
                                     }
