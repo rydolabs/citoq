@@ -217,6 +217,11 @@ def paced_send(args, fn, service=None, wait_for_match=False):
                 service()
             success=fn(make_payload(n,args.payload))
             if success:
+                # publish_raw() queues a QUIC send on the loop owner. Without
+                # this poll the queued packet sits until the *next* 100 Hz
+                # publish, adding a full 10 ms to the measured one-way delay.
+                if service and args.citoq_poll_mode == "immediate":
+                    service()
                 break
             if not wait_for_match or time.monotonic()>deadline:
                 raise RuntimeError("no eligible subscribers for sample "+str(n))
@@ -242,6 +247,8 @@ def main():
     ap.add_argument("--payload",type=int,default=256)
     ap.add_argument("--rate",type=float,default=100)
     ap.add_argument("--timeout",type=float,default=16)
+    ap.add_argument("--citoq-poll-mode",choices=("immediate","legacy"),default="immediate",
+                    help="immediate services queued QUIC send after publish; legacy reproduces the 10ms benchmark bug")
     ap.add_argument("--ca")
     ap.add_argument("--cert")
     ap.add_argument("--key")
