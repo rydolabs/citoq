@@ -1,0 +1,50 @@
+name: "Source handoff archive (main + PR8 + PR9)"
+on:
+  push:
+    branches: ['ops/handoff-source-20261027']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Archive pinned tracked source and reproducible PR patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p handoff-sources
+          git fetch --no-tags origin             refs/heads/main refs/heads/feat/request-replay-safety-20261027             refs/heads/perf/public-api-quic-copy-and-scaling-20261027
+          MAIN="08188eba73284dd1069016174ad216f5e02d2cfa"
+          PR8="30c7fb2a77a82fdfc41a17fb737c15bb579a7935"
+          PR9="7e556e2cc59f4b0acf9d0f80cdca6eca4bc41dd4"
+          for sha in "$MAIN" "$PR8" "$PR9"; do git cat-file -e "$sha^{commit}"; done
+          git archive --format=zip --prefix=source/ "$MAIN" > handoff-sources/citoq-main-source.zip
+          git archive --format=zip --prefix=source/ "$PR8" > handoff-sources/citoq-pr8-source.zip
+          git archive --format=zip --prefix=source/ "$PR9" > handoff-sources/citoq-pr9-source.zip
+          git diff --binary "$MAIN" "$PR9" > handoff-sources/pr9-vs-main.patch
+          git diff --binary "$MAIN" "$PR8" > handoff-sources/pr8-stack-vs-main.patch
+          git ls-tree -r --name-only "$PR9" > handoff-sources/pr9-source-manifest.txt
+          cat > handoff-sources/REVISIONS.txt <<EOF
+          repository=https://github.com/rydolabs/citoq
+          main=$MAIN
+          pr9=$PR9
+          pr9_url=https://github.com/rydolabs/citoq/pull/9
+          pr8=$PR8
+          pr8_url=https://github.com/rydolabs/citoq/pull/8
+          WARNING=PR8 contains stacked PR4/6/7 benchmarks. PR9 branches independently from main. They are NOT merged together.
+          EOF
+          (cd handoff-sources && sha256sum citoq-*.zip *.patch > SOURCE_SHA256SUMS.txt)
+          ls -lah handoff-sources/
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: citoq-handoff-pinned-sources-20261027
+          path: handoff-sources/
+          if-no-files-found: error
+          retention-days: 30
