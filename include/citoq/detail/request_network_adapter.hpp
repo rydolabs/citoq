@@ -99,7 +99,11 @@ public:
         if (it == sessions_.end() || bytes.size() > limit) return false;
         try {
             (void)citoq::decode_data_packet_view(bytes);
-            return it->second(bytes);
+            // A loop-owner send may synchronously fail and detach its
+            // destination. Hold a private copy so the current callback is
+            // not destroyed while it is executing (same as request sends).
+            auto send = it->second;
+            return send(bytes);
         } catch (...) { return false; }
     }
 
