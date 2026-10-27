@@ -56,6 +56,8 @@ class NativeRuntime:
         self._lib.citoq_native_open.restype = ctypes.c_void_p
         self._lib.citoq_native_poll.argtypes = [ctypes.c_void_p]
         self._lib.citoq_native_poll.restype = ctypes.c_size_t
+        self._lib.citoq_native_poll_wait.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+        self._lib.citoq_native_poll_wait.restype = ctypes.c_size_t
         self._lib.citoq_native_close.argtypes = [ctypes.c_void_p]
         self._options = _Options(
             coordinator, incarnation, destination,
@@ -71,6 +73,18 @@ class NativeRuntime:
         if not self._handle:
             raise RuntimeError("Native runtime already closed")
         return int(self._lib.citoq_native_poll(self._handle))
+
+    def poll_wait(self, max_wait_ms: int = 10) -> int:
+        """Wait for a socket/QUIC event and poll on this same owner thread.
+
+        Unlike busy polling, this sleeps in the kernel until a wakeup/deadline.
+        Call from one thread only; callbacks run synchronously on this thread.
+        """
+        if not self._handle:
+            raise RuntimeError("Native runtime already closed")
+        if not 0 <= max_wait_ms <= 0xFFFFFFFF:
+            raise ValueError("max_wait_ms must be in [0, 2**32-1]")
+        return int(self._lib.citoq_native_poll_wait(self._handle, max_wait_ms))
 
     def close(self) -> None:
         if self._handle:
