@@ -1,4 +1,4 @@
-name: Real public APIs: CitoQ mTLS vs DDS Zenoh FastDDS node scaling
+name: 'Real public APIs - CitoQ mTLS vs DDS Zenoh FastDDS node scaling'
 on:
   push:
     branches: ['perf/public-api-quic-copy-and-scaling-*']
