@@ -9,6 +9,7 @@ def main():
  p.add_argument("--nodes",type=int,required=True)
  p.add_argument("--output",type=pathlib.Path,required=True)
  p.add_argument("--count",type=int,default=8)
+ p.add_argument("--lifetime-ms",type=int,default=16000)
  a=p.parse_args()
  a.output.mkdir(parents=True,exist_ok=True)
  handles={}
@@ -26,6 +27,7 @@ def main():
   args +=[f"{k}={env[k]}" for k in ("PYTHONPATH","CITOQ_LIBRARY","CITOQ_NATIVE_LIBRARY")]
   args +=[sys.executable,str(ROOT/"bench/matrix/public_discovery_node.py"),role,
     "--index",str(i),"--nodes",str(a.nodes),"--count",str(a.count),
+    "--lifetime-ms",str(a.lifetime_ms),
     "--ca",str(certs/"ca.pem"),
     "--server-cert",str(certs/"server.pem"),
     "--server-key",str(certs/"server.key"),
@@ -45,14 +47,20 @@ def main():
    time.sleep(.04)
   else:raise RuntimeError("receivers did not initialize")
   prior=m26.interface_stats(a.nodes)
+  publisher_start_ns=time.monotonic_ns()
   launch(0,"publisher")
   sender=handles[0]
   ready_stats=None
+  first_data_stats=None
   sender_log=a.output/"node-000-publisher.log"
   publisher_deadline=time.monotonic()+30
   while time.monotonic()<publisher_deadline and sender.poll() is None:
    if ready_stats is None and "PUBLIC_DISCOVERY_READY" in sender_log.read_text(errors="replace"):
     ready_stats=m26.interface_stats(a.nodes)
+   if first_data_stats is None and all(
+       "BENCH_FIRST_DATA" in (a.output/f"node-{i:03d}-subscriber.log").read_text(errors="replace")
+       for i in range(1,a.nodes-1)):
+    first_data_stats=m26.interface_stats(a.nodes)
    time.sleep(.025)
   if sender.poll() is None:sender.kill()
   sender.wait()
@@ -69,8 +77,11 @@ def main():
    found=re.findall(r"NODE_RESULT=(\{[^\n]+\})",txt)
    result=json.loads(found[-1]) if found else {}
    rows.append(dict(result,index=i,role=role,exit=h.returncode))
+  first_times=[x.get("first_received_ns",0) for x in rows if x["role"]=="subscriber"]
+  first_last_ns=max(first_times) if len(first_times)==a.nodes-2 and all(t>publisher_start_ns for t in first_times) else None
   metrics=dict(nodes=a.nodes,all_processes=len(handles)==a.nodes and all(x["exit"]==0 for x in rows),
       ready_ms=next((x.get("ready_ms") for x in rows if x["role"]=="publisher"),None),
+      time_to_all_first_data_ms=round((first_last_ns-publisher_start_ns)/1e6,3) if first_last_ns else None,
       matched=next((x.get("matched") for x in rows if x["role"]=="publisher"),None),
       expected_peers=a.nodes-2,
       received=sum(x.get("received",0) for x in rows if x["role"]=="subscriber"),
@@ -78,6 +89,7 @@ def main():
       negative_received=sum(x.get("received",0) for x in rows if x["role"]=="negative"),
       startup_subscriber_veth_rx_bytes=m26.delta(prior,before)["rx_bytes"],
       discovery_post_publisher_rx_bytes=m26.delta(ready_stats,prior)["rx_bytes"] if ready_stats else None,
+      publisher_to_first_data_rx_bytes=m26.delta(first_data_stats,prior)["rx_bytes"] if first_data_stats else None,
       whole_trial_veth_rx_bytes=m26.delta(after,before)["rx_bytes"])
  except Exception as exc:
   metrics=dict(nodes=a.nodes,error=str(exc),all_processes=False)
@@ -91,6 +103,7 @@ def main():
   m26.cleanup(a.nodes)
  metrics["accepted"]=bool(metrics.get("all_processes") and
     metrics.get("ready_ms") is not None and
+    metrics.get("time_to_all_first_data_ms") is not None and
     metrics.get("matched")==metrics.get("expected_peers") and
     metrics.get("received")==metrics.get("expected_deliveries") and
     metrics.get("negative_received")==0)

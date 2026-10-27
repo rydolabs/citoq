@@ -12,6 +12,7 @@ def main():
  p.add_argument("--index",type=int,required=True)
  p.add_argument("--nodes",type=int,required=True)
  p.add_argument("--count",type=int,default=8)
+ p.add_argument("--lifetime-ms",type=int,default=16000)
  p.add_argument("--ca",required=True)
  p.add_argument("--server-cert",required=True)
  p.add_argument("--server-key",required=True)
@@ -33,10 +34,11 @@ def main():
            announcement_ipv4=None if pub else "10.202.0.11",
            announcement_port=0 if pub else 47465)
  seen=set()
+ first_received_ns=0
  duplicates=0
  invalid=0
  def recv(data):
-  nonlocal duplicates,invalid
+  nonlocal duplicates,invalid,first_received_ns
   b=bytes(data)
   if len(b)<9 or b[0]!=ord("D"):
    return
@@ -46,19 +48,22 @@ def main():
   elif seq in seen:
    duplicates+=1
   else:
+   if first_received_ns==0:
+    first_received_ns=now()
+    print(f"BENCH_FIRST_DATA ns={first_received_ns}",flush=True)
    seen.add(seq)
  with NativeRuntime(**opts) as transport, citoq.Context("acme") as ctx:
   if not pub:
    sub_type=TYPE if a.role=="subscriber" else TYPE+10000
    ctx.subscribe_raw(sub_type,recv,RESOURCE)
    print("RECEIVER_READY",flush=True)
-   until=time.monotonic()+32
+   until=time.monotonic()+a.lifetime_ms/1000
    while time.monotonic()<until:
     transport.poll()
     if a.role=="subscriber" and len(seen)==a.count:break
     if a.role=="negative" and time.monotonic()>until-2:break
     time.sleep(.0005)
-   print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,received=len(seen),duplicates=duplicates,invalid=invalid)),flush=True)
+   print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,received=len(seen),duplicates=duplicates,invalid=invalid,first_received_ns=first_received_ns)),flush=True)
    return 0 if (a.role=="negative" and len(seen)==0 or a.role=="subscriber" and len(seen)==a.count) and duplicates==0 and invalid==0 else 2
   ctx.advertise_raw(TYPE,RESOURCE)
   t0=now()
@@ -76,13 +81,17 @@ def main():
   ready_ms=(now()-t0)/1e6 if matched==target else None
   if ready_ms is not None:
    print(f"PUBLIC_DISCOVERY_READY elapsed_ms={ready_ms:.3f}",flush=True)
+   warm_until=time.monotonic()+0.5
+   while time.monotonic()<warm_until:
+    transport.poll()
+    time.sleep(.0005)
    for i in range(1,a.count+1):
     sent=ctx.publish_raw(TYPE,b"D"+struct.pack("<Q",i),RESOURCE)
     transport.poll()
     if sent!=target:
      print("PUBLIC_SEND_FAILED "+str(sent),flush=True)
      return 3
-    time.sleep(.01)
+    time.sleep(.1)
    until=time.monotonic()+1.5
    while time.monotonic()<until:
     transport.poll();time.sleep(.0005)
