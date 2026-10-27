@@ -1,0 +1,61 @@
+name: "CitoQ handoff immutable source snapshots"
+on:
+  push:
+    branches:
+      - "handoff/citoq-snapshot-20261027"
+    paths:
+      - ".github/workflows/handoff-source-snapshots.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify immutable commits and build source archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
+          mkdir -p handoff-export
+          MAIN=08188eba73284dd1069016174ad216f5e02d2cfa
+          PR9=7e556e2cc59f4b0acf9d0f80cdca6eca4bc41dd4
+          PR8=30c7fb2a77a82fdfc41a17fb737c15bb579a7935
+          PR7=2eb5fcb73353da834aa7615b415579bdfdb79d5c
+          PR6=d97e8fbfadcbfbe2390cb473877fc9715749c2b6
+          PR4=1d0a6d53fce13a50121ca35c7a377ebd3bbac309
+          PR5=d82d5affcedc22c5b966c1bbffd7ca2c45489519
+          for ref in "$MAIN" "$PR9" "$PR8" "$PR7" "$PR6" "$PR4" "$PR5"; do
+            git cat-file -e "$ref^{commit}"
+          done
+          git archive --format=tar --prefix=source-main/ "$MAIN" | gzip -n > handoff-export/source-main.tar.gz
+          git archive --format=tar --prefix=source-pr9/ "$PR9" | gzip -n > handoff-export/source-pr9.tar.gz
+          git archive --format=tar --prefix=source-pr8/ "$PR8" | gzip -n > handoff-export/source-pr8.tar.gz
+          git diff --binary "$MAIN" "$PR9" > handoff-export/pr9-against-main.patch
+          git diff --binary "$PR7" "$PR8" > handoff-export/pr8-against-pr7.patch
+          git diff --binary "$PR6" "$PR7" > handoff-export/pr7-against-pr6.patch
+          git merge-base "$PR6" "$PR4" > handoff-export/pr6-pr4-merge-base.txt
+          git diff --binary "$(cat handoff-export/pr6-pr4-merge-base.txt)" "$PR6" > handoff-export/pr6-against-merge-base.patch
+          {
+            echo "main=$MAIN"
+            echo "pr9=$PR9"
+            echo "pr8=$PR8"
+            echo "pr7=$PR7"
+            echo "pr6=$PR6"
+            echo "pr4=$PR4"
+            echo "pr5=$PR5"
+            echo "handoff_workflow_commit=$(git rev-parse HEAD)"
+          } > handoff-export/PINNED_REFS.txt
+          cd handoff-export
+          sha256sum *.tar.gz *.patch > SOURCE_SHA256SUMS.txt
+          ls -lah .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: citoq-handoff-source-snapshots
+          path: handoff-export/
+          if-no-files-found: error
+          retention-days: 14
