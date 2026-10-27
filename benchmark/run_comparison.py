@@ -79,7 +79,7 @@ def bench(engine,profile,rep,py,count,payload,rate,poll_mode):
         for role, resource in (("sender",OUT/(pref+"-sender.json.resource")),
                                ("receiver",pathlib.Path(str(result)+".resource"))):
             try:
-                match=re.search(r"user_s=([0-9.]+) system_s=([0-9.]+) max_rss_kb=(\\d+)",resource.read_text())
+                match=re.search(r"user_s=([0-9.]+) system_s=([0-9.]+) max_rss_kb=([0-9]+)",resource.read_text())
                 if match:
                     summary[role+"_cpu_s"]=round(float(match[1])+float(match[2]),6)
                     summary[role+"_max_rss_kb"]=int(match[3])
