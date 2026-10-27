@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -17,6 +18,12 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+// Diagnostic-only native receive-stage sampling. Never enabled in the normal
+// product; callbacks continue posting to the single-owner event loop.
+#ifndef CITOQ_NATIVE_RX_TIMING
+#define CITOQ_NATIVE_RX_TIMING 0
+#endif
 
 namespace citoq::detail {
 
@@ -501,6 +508,25 @@ public:
         inbound_streams_.clear();
 
         poll(0);
+
+#if CITOQ_NATIVE_RX_TIMING
+        // Diagnostic stream-event counts, not a claim about wire/handshake
+        // timing. All samples were collected on the owner loop thread.
+        auto dump = [](const char* name, std::vector<double>& data) {
+            std::sort(data.begin(), data.end());
+            auto pct = [&](double percentile) {
+                if (data.empty()) return 0.0;
+                const auto index = static_cast<std::size_t>(
+                    (data.size() - 1) * percentile);
+                return data[index];
+            };
+            std::fprintf(stderr,
+                "CITOQ_NATIVE_RX_TIMING metric=%s samples=%zu p50_us=%.3f p95_us=%.3f p99_us=%.3f\n",
+                name, data.size(), pct(0.50), pct(0.95), pct(0.99));
+        };
+        dump("msquic_receive_to_owner", rx_queue_us_);
+        dump("native_data_dispatch", rx_delivery_us_);
+#endif
     }
 
 private:
@@ -1097,8 +1123,18 @@ private:
             stream->received[2] == 'D' &&
             stream->received[3] == '1') {
             if (options_.require_client_certificate) {
+#if CITOQ_NATIVE_RX_TIMING
+                const auto dispatch_start = std::chrono::steady_clock::now();
+#endif
                 (void)runtime_.request_network().receive_data(
                     stream->received);
+#if CITOQ_NATIVE_RX_TIMING
+                const auto us = std::chrono::duration<double, std::micro>(
+                    std::chrono::steady_clock::now() - dispatch_start).count();
+                if (rx_delivery_us_.size() < 20000) {
+                    rx_delivery_us_.push_back(us);
+                }
+#endif
             }
             graceful_stream_finish(stream);
             return;
@@ -1523,6 +1559,9 @@ private:
 
         switch (event->Type) {
             case QUIC_STREAM_EVENT_RECEIVE: {
+#if CITOQ_NATIVE_RX_TIMING
+                const auto receive_started = std::chrono::steady_clock::now();
+#endif
                 std::size_t total = 0;
 
                 for (
@@ -1569,7 +1608,18 @@ private:
                      stream,
                      bytes =
                          std::move(bytes),
-                     peer_done]() mutable {
+                     peer_done
+#if CITOQ_NATIVE_RX_TIMING
+                     , receive_started
+#endif
+                     ]() mutable {
+#if CITOQ_NATIVE_RX_TIMING
+                        const auto us = std::chrono::duration<double, std::micro>(
+                            std::chrono::steady_clock::now() - receive_started).count();
+                        if (self->rx_queue_us_.size() < 20000) {
+                            self->rx_queue_us_.push_back(us);
+                        }
+#endif
                         self->
                             on_stream_bytes(
                                 stream,
@@ -1663,6 +1713,10 @@ private:
         std::size_t> completed_sends_{
             0};
 
+#if CITOQ_NATIVE_RX_TIMING
+    std::vector<double> rx_queue_us_;
+    std::vector<double> rx_delivery_us_;
+#endif
     std::mutex queue_mutex_;
     std::deque<
         std::function<void()>>
