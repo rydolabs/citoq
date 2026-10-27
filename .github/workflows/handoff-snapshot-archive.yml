@@ -1,0 +1,53 @@
+name: 'CitoQ handoff snapshots archive'
+on:
+  push:
+    branches:
+      - handoff/source-archive-20261027
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Archive exact pinned Git trees (no .git or transient credentials)
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAIN=08188eba73284dd1069016174ad216f5e02d2cfa
+          DESIGN=7e556e2cc59f4b0acf9d0f80cdca6eca4bc41dd4
+          PERFORMANCE=30c7fb2a77a82fdfc41a17fb737c15bb579a7935
+          PERFORMANCE_BASE=2eb5fcb73353da834aa7615b415579bdfdb79d5c
+          for sha in "$MAIN" "$DESIGN" "$PERFORMANCE" "$PERFORMANCE_BASE"; do
+            git cat-file -e "$sha^{commit}"
+          done
+          mkdir -p payload/source/main payload/source/pr9-design payload/source/pr8-performance payload/patches payload/metadata
+          git archive "$MAIN" | tar -x -C payload/source/main
+          git archive "$DESIGN" | tar -x -C payload/source/pr9-design
+          git archive "$PERFORMANCE" | tar -x -C payload/source/pr8-performance
+          git diff --binary "$MAIN" "$DESIGN" > payload/patches/main-to-pr9-design.patch
+          git diff --binary "$PERFORMANCE_BASE" "$PERFORMANCE" > payload/patches/pr7-to-pr8-performance.patch
+          git diff --binary "$MAIN" "$PERFORMANCE" > payload/patches/main-to-pr8-performance-full.patch
+          {
+            printf 'main=%s\n' "$MAIN"
+            printf 'pr9_design=%s\n' "$DESIGN"
+            printf 'pr8_performance=%s\n' "$PERFORMANCE"
+            printf 'pr8_base_pr7=%s\n' "$PERFORMANCE_BASE"
+          } > payload/metadata/PINNED_REFS.txt
+          find payload/source -type f | sort > payload/metadata/FILE_PATHS.txt
+          find payload/source -type f -print0 | sort -z | xargs -0 sha256sum > payload/metadata/SOURCE_SHA256SUMS.txt
+          tar -czf citoq-pinned-git-snapshots.tar.gz -C payload .
+          ls -lh citoq-pinned-git-snapshots.tar.gz
+          printf 'SOURCE_SNAPSHOT_FILES=%s\n' "$(find payload/source -type f | wc -l)"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: citoq-pinned-git-handoff-snapshots
+          path: citoq-pinned-git-snapshots.tar.gz
+          if-no-files-found: error
+          retention-days: 30
