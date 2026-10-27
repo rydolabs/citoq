@@ -38,6 +38,11 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mod
     ns=NS[0] if role=="sender" else NS[1]
     library_dir=pathlib.Path(os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark"))).resolve()
     env={"PYTHONPATH":str(ROOT/"python"),"CITOQ_LIBRARY":str(library_dir/"libcitoq.so"),"CITOQ_NATIVE_LIBRARY":str(library_dir/"libcitoq_native.so")}
+    if engine=="zenoh" and role=="sender":
+        for key in ("ZENOH_BENCH_ROGUE_CLIENT_CERT","ZENOH_BENCH_ROGUE_CLIENT_KEY"):
+            value=os.environ.get(key)
+            if value:
+                env[key]=str(pathlib.Path(value).resolve())
     if engine=="fastdds":
         args=[str(ROOT/"build-benchmark-adapter/fastdds_node"),role,str(count),str(payload),str(rate),str(result)]
     else:
@@ -73,7 +78,7 @@ def bench(engine,profile,rep,py,count,payload,rate,poll_mode,rx_sleep_us,rx_mode
     (OUT/(pref+"-receiver.log")).write_text(receiver_out)
     try: summary=json.loads(result.read_text())
     except Exception as exc: summary={"error":"result unavailable: "+str(exc)}
-    summary.update(engine=engine,profile=profile,repetition=rep,zenoh_transport=zenoh_transport if engine=="zenoh" else None,citoq_poll_mode=poll_mode if engine=="citoq" else "not_applicable",
+    summary.update(engine=engine,profile=profile,repetition=rep,zenoh_auth_control="rogue" if (engine=="zenoh" and os.environ.get("ZENOH_BENCH_ROGUE_CLIENT_CERT")) else "legitimate",zenoh_transport=zenoh_transport if engine=="zenoh" else None,citoq_poll_mode=poll_mode if engine=="citoq" else "not_applicable",
                    citoq_rx_sleep_us=rx_sleep_us if engine=="citoq" else None,
                    citoq_rx_mode=rx_mode if engine=="citoq" else None,
                    citoq_rx_wait_ms=rx_wait_ms if engine=="citoq" else None,sender_exit=sender.returncode,
