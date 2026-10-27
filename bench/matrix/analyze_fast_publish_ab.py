@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strict same-source MsQuic fast owner-thread send experiment validation.
+"""Strict same-native-build Python ctypes payload pointer experiment.
 
 Does not select the winner based on a single p95; publishes regression evidence.
 """
@@ -53,7 +53,8 @@ def main():
                     r.get("payload_bytes") != size or r.get("expected") != count or
                     r.get("missing") != 0 or r.get("duplicates") != 0 or r.get("invalid") != 0 or
                     r.get("sender_exit") != 0 or r.get("receiver_exit") != 0 or
-                    (name == "citoq" and r.get("citoq_rx_mode") != "event")):
+                    (name == "citoq" and (r.get("citoq_rx_mode") != "event" or
+                     r.get("citoq_fast_publish_pointers") is not (variant == "fast")))):
                     errors.append(f"{label}/{variant}: failed trial: {r}")
                 else:
                     valid.append(r)
@@ -88,7 +89,7 @@ def main():
         "Maximum throughput, congestion control, loss recovery, and long-lived-stream behavior not established.",
     ]
     a.root.mkdir(parents=True,exist_ok=True)
-    (a.root/"fast-send-ab-report.json").write_text(json.dumps(report,indent=2)+"\n")
+    (a.root/"fast-publish-ab-report.json").write_text(json.dumps(report,indent=2)+"\n")
     print("FAST_PUBLISH_AB_REPORT="+json.dumps(report,sort_keys=True),flush=True)
     for error in errors:print("FAST_PUBLISH_AB_ERROR="+error,file=sys.stderr,flush=True)
     return 0 if not errors else 1
