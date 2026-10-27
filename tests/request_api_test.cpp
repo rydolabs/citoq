@@ -281,6 +281,15 @@ int main() {
     assert(runtime->requests().handler_count(request_key) == 0);
     assert(!runtime->host().has_local_demand(capability));
 
+    // Explicit close is idempotent and prevents destructor double-close.
+    {
+        auto scoped = provider.on_request<Ping>(
+            "robot_1", [](const Ping&) { return Pong{3}; });
+        scoped.close();
+        scoped.close();
+        assert(runtime->requests().handler_count(request_key) == 0);
+    }
+
     // A dropped unnamed temporary intentionally closes immediately.
     provider.on_request<Ping>(
         "robot_1", [](const Ping&) { return Pong{3}; });

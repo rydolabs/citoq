@@ -245,18 +245,21 @@ public:
     ScopedHandlerRegistration() = default;
 
     explicit ScopedHandlerRegistration(HandlerRegistration registration)
-        : registration_(std::move(registration)) {}
+        : registration_(std::move(registration)), active_(true) {}
 
     ScopedHandlerRegistration(const ScopedHandlerRegistration&) = delete;
     ScopedHandlerRegistration& operator=(const ScopedHandlerRegistration&) =
         delete;
 
-    ScopedHandlerRegistration(ScopedHandlerRegistration&&) noexcept = default;
+    ScopedHandlerRegistration(ScopedHandlerRegistration&& other) noexcept
+        : registration_(std::move(other.registration_)),
+          active_(std::exchange(other.active_, false)) {}
 
     ScopedHandlerRegistration& operator=(ScopedHandlerRegistration&& other) {
         if (this != &other) {
             close();
             registration_ = std::move(other.registration_);
+            active_ = std::exchange(other.active_, false);
         }
         return *this;
     }
@@ -270,11 +273,13 @@ public:
     }
 
     void close() {
+        if (!std::exchange(active_, false)) return;
         registration_.close();
     }
 
 private:
     HandlerRegistration registration_;
+    bool active_{false};
 };
 
 } // namespace citoq
