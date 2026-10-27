@@ -134,7 +134,9 @@ def trial(args,engine,repeat):
             launch(i)
             if args.stagger_ms:time.sleep(args.stagger_ms/1000)
         time.sleep(.4)
-        publisher_start=time.monotonic()
+        interface_before_publisher=interface_stats(n)
+        publisher_start=time.monotonic_ns()
+        first_data_stats=None
         launch(0)
         deadline=time.monotonic()+args.lifetime_ms/1000+12
         publisher_log=folder/'node-000-publisher.log'
@@ -145,6 +147,10 @@ def trial(args,engine,repeat):
                 if match:
                     ready_ms=int(match[1])
                     discovery=interface_stats(n)
+            if first_data_stats is None and all(
+                "BENCH_FIRST_DATA" in (folder/f"node-{i:03d}-subscriber.log").read_text(errors="replace")
+                for i in range(1,n-1)):
+                first_data_stats=interface_stats(n)
             if all(p.poll() is not None for p in p_by_index.values()):break
             time.sleep(.05)
         else:
@@ -172,6 +178,9 @@ def trial(args,engine,repeat):
     sends=publisher.get('sent',0)
     counts=[x.get('received',0) for x in positives]
     bad=sum(x.get('bad',0)+x.get('duplicate',0) for x in positives)
+    first_times=[x.get("first_received_ns",0) for x in positives]
+    last_first_ns=max(first_times) if len(first_times)==n-2 and all(t>publisher_start for t in first_times) else None
+    first_delivery_ms=round((last_first_ns-publisher_start)/1e6,3) if last_first_ns else None
     all_exited=len(p_by_index)==n and all(p.returncode==0 for p in p_by_index.values())
     truth=all_exited and sends==args.topics*args.samples and bad==0 and negative.get('received',-1)==0 and negative.get('bad',-1)==0 and received<=expected and ready_ms is not None and not reason
     if engine=='cito' and negative.get('data_datagrams',-1)!=0:truth=False
@@ -179,6 +188,7 @@ def trial(args,engine,repeat):
              subscribed_topics=active,bytes=args.bytes,hz=args.hz,samples=args.samples,
              publisher_sent=sends,expected=expected,received=received,delivery_rate=round(received/expected,6),
              all_received=received==expected,valid=truth,reason=reason,discovery_ready_ms=ready_ms,
+             time_to_all_first_data_ms=first_delivery_ms,
              subscriber_p95_max_us=max((v.get('p95_us',0) for v in positives),default=0),
              positive_min_received=min(counts,default=0),
              negative_received=negative.get('received'),unrelated_data_datagrams=negative.get('data_datagrams'),
@@ -192,6 +202,9 @@ def trial(args,engine,repeat):
         if discovery:
             pre=delta(discovery,before)
             row.update({f'prepublish_{k}':v for k,v in pre.items()})
+    if before and first_data_stats:
+        row.update({f'publisher_to_first_data_{k}':v for k,v in
+                    delta(first_data_stats, interface_before_publisher).items()})
     (folder/'result.json').write_text(json.dumps(dict(row=row,publisher=publisher,negative=negative,subscribers=positives,
                     resource_stats=metrics,interface_before=before,interface_prepublish=discovery,interface_after=after),indent=2)+'\n')
     return row

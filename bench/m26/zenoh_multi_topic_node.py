@@ -36,6 +36,7 @@ def main():
     bad = 0
     dup = 0
     latencies = []
+    first_received_ns = 0
     started = monotonic()
     sent = 0
     ready = False
@@ -55,7 +56,7 @@ def main():
 
         def listener(t):
             def on_sample(sample):
-                nonlocal received, bad, dup
+                nonlocal received, bad, dup, first_received_ns
                 raw = sample.payload.to_bytes()
                 now = monotonic()
                 with lock:
@@ -71,6 +72,9 @@ def main():
                         dup += 1
                     else:
                         seen.add(key)
+                        if not first_received_ns:
+                            first_received_ns = now
+                            print(f"BENCH_FIRST_DATA ns={now}", flush=True)
                         received += 1
                         latencies.append((now-when)//1000)
             return on_sample
@@ -113,7 +117,7 @@ def main():
 
     output = dict(role=role,topics=topics,bytes=size,samples=samples,sent=sent,
         received=received,bad=bad,duplicate=dup,p95_us=pct95(latencies),
-        ready=int(ready),index=index,active_topics=subscribed)
+        ready=int(ready),index=index,active_topics=subscribed,first_received_ns=first_received_ns)
     print(json.dumps(output),flush=True)
     if role == "publisher":
         return 0 if ready and sent == topics*samples else 3

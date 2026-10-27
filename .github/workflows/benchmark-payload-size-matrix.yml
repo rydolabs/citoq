@@ -1,9 +1,11 @@
 name: Payload size matrix - CitoQ public mTLS and DDS Zenoh
 on:
   push:
-    branches: ['bench/node-discovery-payload-matrix-*']
+    branches: ['bench/node-discovery-payload-matrix-*', 'perf/public-api-quic-copy-and-scaling-*']
     paths:
       - 'bench/matrix/**'
+      - 'src/msquic_request_session_manager.cpp'
+      - 'benchmark/run_comparison.py'
       - '.github/workflows/benchmark-payload-size-matrix.yml'
   workflow_dispatch:
 permissions:
@@ -41,7 +43,7 @@ jobs:
           SO="$(find /usr/lib /lib -type f -name 'libmsquic.so*' -print -quit)"
           test -n "$SO"
           sudo ln -sf "$SO" /usr/local/lib/libmsquic.so
-      - name: Build pinned CitoQ native mTLS driver
+      - name: Build candidate CitoQ native mTLS driver
         shell: bash
         run: |
           set -euo pipefail
