@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <chrono>
 #include <citoq/detail/msquic_request_session_manager.hpp>
 
 #include <msquic.h>
@@ -816,6 +818,11 @@ private:
 
         HQUIC handle = nullptr;
 
+        // Diagnostic-only stage timing: compile with
+        // -DCITOQ_QUIC_STAGE_TRACE=1 to print synchronous MsQuic API cost.
+#if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
+        const auto trace_begin = std::chrono::steady_clock::now();
+#endif
         if (QUIC_FAILED(
                 api_->StreamOpen(
                     it->second->handle,
@@ -846,9 +853,25 @@ private:
             return;
         }
 
-        if (!send_on_stream(
+#if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
+        const auto trace_after_start = std::chrono::steady_clock::now();
+#endif
+        const bool queued = send_on_stream(
                 stream,
-                std::move(bytes))) {
+                std::move(bytes));
+#if defined(CITOQ_QUIC_STAGE_TRACE) && CITOQ_QUIC_STAGE_TRACE
+        const auto trace_after_send = std::chrono::steady_clock::now();
+        const auto ns = [](auto from, auto to) {
+            return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                to - from).count();
+        };
+        std::fprintf(stderr,
+            "CITOQ_QUIC_STAGE stream_open_start_ns=%lld stream_send_ns=%lld queued=%d\\n",
+            static_cast<long long>(ns(trace_begin, trace_after_start)),
+            static_cast<long long>(ns(trace_after_start, trace_after_send)),
+            static_cast<int>(queued));
+#endif
+        if (!queued) {
             if (
                 stream->handle &&
                 !stream->closed.load(
