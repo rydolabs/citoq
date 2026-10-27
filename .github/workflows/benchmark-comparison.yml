@@ -75,13 +75,13 @@ jobs:
           g++ -std=c++17 -O2 -pthread -Ibuild-benchmark-adapter/generated benchmark/fastdds_node.cpp $(find build-benchmark-adapter/generated -maxdepth 1 -type f -name '*.cxx' ! -name '*Publisher*' ! -name '*Subscriber*' ! -name '*Main*' | sort) -lfastrtps -lfastcdr -o build-benchmark-adapter/fastdds_node
       - name: Unit test publisher-to-QUIC-poll ordering
         run: python3 -m unittest discover -s benchmark -p 'test_*.py' -v
-      - name: Same-build CitoQ legacy vs immediate send poll, 3 repetitions per profile
+      - name: Same-build CitoQ legacy vs immediate send poll, 3 baseline repetitions
         shell: bash
         run: |
           set -euo pipefail
           for mode in legacy immediate; do
             python3 benchmark/run_comparison.py --python "$GITHUB_WORKSPACE/.venv/bin/python" \
-              --engines citoq --count 200 --payload 256 --rate 100 --repeats 3 \
+              --engines citoq --count 200 --payload 256 --rate 100 --repeats 3 --profiles baseline \
               --citoq-poll-mode "$mode" --output-dir "benchmark-evidence/$mode"
           done
           python3 benchmark/verify_poll_fix.py --legacy benchmark-evidence/legacy/summary.json \

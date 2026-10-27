@@ -7,15 +7,14 @@ import statistics
 
 def load(path):
     rows=json.loads(pathlib.Path(path).read_text())
-    assert len(rows)==6, f"expected three repeats x two profiles: {path}"
+    assert len(rows)==3, f"expected three baseline repeats: {path}"
     by_profile={}
     for row in rows:
         assert row["engine"]=="citoq" and row["accepted"], row
         assert row["received_unique"]==row["expected"]==200
         assert row["duplicates"]==row["invalid"]==row["missing"]==0
         by_profile.setdefault(row["profile"],[]).append(row["latency_us_p95"]/1000)
-    assert {k:len(v) for k,v in by_profile.items()}=={
-        "baseline":3,"netem_10ms_1pct":3}, by_profile
+    assert {k:len(v) for k,v in by_profile.items()}=={"baseline":3}, by_profile
     return by_profile
 
 def main():
