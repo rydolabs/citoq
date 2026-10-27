@@ -38,6 +38,8 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mod
     ns=NS[0] if role=="sender" else NS[1]
     library_dir=pathlib.Path(os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark"))).resolve()
     env={"PYTHONPATH":str(ROOT/"python"),"CITOQ_LIBRARY":str(library_dir/"libcitoq.so"),"CITOQ_NATIVE_LIBRARY":str(library_dir/"libcitoq_native.so")}
+    if engine=="citoq" and "CITOQ_EXPERIMENT_FAST_PUBLISH_POINTERS" in os.environ:
+        env["CITOQ_EXPERIMENT_FAST_PUBLISH_POINTERS"]=os.environ["CITOQ_EXPERIMENT_FAST_PUBLISH_POINTERS"]
     if engine=="fastdds":
         args=[str(ROOT/"build-benchmark-adapter/fastdds_node"),role,str(count),str(payload),str(rate),str(result)]
     else:
@@ -71,7 +73,10 @@ def bench(engine,profile,rep,py,count,payload,rate,poll_mode,rx_sleep_us,rx_mode
     (OUT/(pref+"-receiver.log")).write_text(receiver_out)
     try: summary=json.loads(result.read_text())
     except Exception as exc: summary={"error":"result unavailable: "+str(exc)}
-    summary.update(engine=engine,profile=profile,repetition=rep,citoq_poll_mode=poll_mode if engine=="citoq" else "not_applicable",
+    summary.update(engine=engine,profile=profile,repetition=rep,
+                   citoq_fast_publish_pointers=(os.environ.get("CITOQ_EXPERIMENT_FAST_PUBLISH_POINTERS","0")=="1")
+                       if engine=="citoq" else None,
+                   citoq_poll_mode=poll_mode if engine=="citoq" else "not_applicable",
                    citoq_rx_sleep_us=rx_sleep_us if engine=="citoq" else None,
                    citoq_rx_mode=rx_mode if engine=="citoq" else None,
                    citoq_rx_wait_ms=rx_wait_ms if engine=="citoq" else None,sender_exit=sender.returncode,
