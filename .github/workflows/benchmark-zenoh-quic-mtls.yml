@@ -83,11 +83,17 @@ jobs:
               zenoh-quic-mtls) engine=zenoh; zenoh_transport=quic-mtls;;
             esac
             echo "::group::$cohort"
+            status=0
             CITOQ_BENCH_RESOURCES=1 python3 benchmark/run_comparison.py --python "$GITHUB_WORKSPACE/.venv/bin/python" \
               --engines "$engine" --count 200 --rate 100 --repeats 3 --payload 256 \
               --profiles baseline --citoq-poll-mode immediate --citoq-rx-mode event \
               --zenoh-transport "$zenoh_transport" \
-              --output-dir "quic-parity-evidence/$cohort"
+              --output-dir "quic-parity-evidence/$cohort" || status=$?
+            if [[ "$status" != 0 ]]; then
+              echo "::error::Failure in $cohort, raw sender/receiver logs follow"
+              find "quic-parity-evidence/$cohort" -maxdepth 1 -name '*.log' -print -exec tail -n 75 {} \;
+              exit "$status"
+            fi
             echo "::endgroup::"
           done
           python3 bench/matrix/analyze_zenoh_quic_parity.py --root quic-parity-evidence --repeats 3 --payload 256 --rate 100
