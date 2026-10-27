@@ -40,7 +40,12 @@ def main():
  def recv(data):
   nonlocal duplicates,invalid,first_received_ns
   b=bytes(data)
-  if len(b)<9 or b[0]!=ord("D"):
+  if not b or b[0]!=ord("D"):
+   return
+  if len(b)!=256 or b[9:]!=b"A"*247:
+   invalid+=1
+   return
+  if len(b)<9:
    return
   seq=struct.unpack_from("<Q",b,1)[0]
   if not 1<=seq<=a.count:
@@ -86,7 +91,7 @@ def main():
     transport.poll()
     time.sleep(.0005)
    for i in range(1,a.count+1):
-    sent=ctx.publish_raw(TYPE,b"D"+struct.pack("<Q",i),RESOURCE)
+    sent=ctx.publish_raw(TYPE,b"D"+struct.pack("<Q",i)+b"A"*247,RESOURCE)
     transport.poll()
     if sent!=target:
      print("PUBLIC_SEND_FAILED "+str(sent),flush=True)
