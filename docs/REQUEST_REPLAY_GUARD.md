@@ -29,3 +29,9 @@ Source reference: user-provided `middleware_core_design.md`, sections 3.2/3.3 an
 ## API registration ergonomics from the reference design
 
 A separate `Context::on_request<T>(resource, handler)` scoped/RAII alias was introduced. Its `ScopedHandlerRegistration` releases handler registration on scope exit and on replacement, while the existing `Context::handle<T>()` continues to belong to Context lifetime. No existing API behavior is changed. The scoped variant is especially useful for temporary gateways and service lifetimes: forgetting to keep the handle deliberately unregisters immediately. It is *not* the same as an application idempotency policy.
+
+## Exact resource authorization hook (foundation, not complete ACL)
+
+The optional `AccessPolicy` class is **deny-by-default**, has a bounded exact-grant table, and distinguishes `Publish`, `Subscribe`, `Request` and `Handle` for an explicit `principal + Scope + Resource + Type` tuple. Its unit test proves deny-by-default, exact operation/key/subject matching, grant/revoke and capacity enforcement. It does not perform certificate verification or authorize outgoing/incoming Pub/Sub automatically.
+
+`RequestTransportCore::set_request_authorizer()` can enforce a request-only authorization decision **before handler dispatch**. A denial or exception returns existing CTX1 `Unavailable` (instead of disclosing handler existence) and cannot invoke the handler. Unit tests model a separately **verified principal map**; the callback receives a *session-local numeric peer ID*, **which is NOT an authenticated principal**. Production integration MUST bind validated client certificates and revocation state to peer connections, attach a mandatory policy and verify publish/subscribe/handler operations before claiming secure resource ACL. Without this opt-in hook the old transport behavior remains unchanged. The hook is loop-owner-only, like the existing RequestTransport state.

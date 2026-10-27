@@ -1,10 +1,13 @@
 #include <citoq/detail/request_transport.hpp>
+#include <citoq/access_policy.hpp>
 
 #include <array>
 #include <cassert>
 #include <cstdint>
 #include <span>
 #include <stdexcept>
+#include <unordered_map>
+#include <string>
 #include <vector>
 
 namespace {
@@ -710,6 +713,46 @@ int main() {
     assert(window.contains(2, 11));
     window.forget_peer(2);
     assert(!window.contains(2, 11));
+
+    // Optional request ACL enforces a verified-principal-derived decision
+    // before handler dispatch. A raw peer number is never itself trusted.
+    citoq::AccessPolicy acl(4);
+    const citoq::InterestKey guard_demand{
+        guard_key.scope, guard_key.resource, guard_key.request_type};
+    std::unordered_map<RequestPeerId, std::string> verified_principals{
+        {700, "robot-control"}};
+    guard_transport.set_request_authorizer(
+        [&](RequestPeerId peer, const RequestKey& key) {
+            const auto principal = verified_principals.find(peer);
+            if (principal == verified_principals.end()) return false;
+            return acl.allows(
+                principal->second, citoq::AccessOperation::Request,
+                citoq::InterestKey{key.scope, key.resource, key.request_type});
+        });
+    assert(probe(700, 90) == RequestStatus::Unavailable);
+    assert(probe(701, 90) == RequestStatus::Unavailable);
+    assert(guard_calls == 5);
+    assert(acl.grant(
+        "robot-control", citoq::AccessOperation::Request, guard_demand));
+    assert(probe(700, 90) == RequestStatus::Ok);
+    assert(guard_calls == 6);
+    assert(probe(701, 90) == RequestStatus::Unavailable);
+    assert(guard_calls == 6);
+    assert(acl.revoke(
+        "robot-control", citoq::AccessOperation::Request, guard_demand));
+    assert(probe(700, 91) == RequestStatus::Unavailable);
+    assert(guard_calls == 6);
+
+    // A faulty authorization callback must not turn into "allow".
+    guard_transport.set_request_authorizer(
+        [](RequestPeerId, const RequestKey&) -> bool {
+            throw std::runtime_error("authorization failed");
+        });
+    assert(probe(700, 92) == RequestStatus::Unavailable);
+    assert(guard_calls == 6);
+    guard_transport.clear_request_authorizer();
+    assert(probe(701, 93) == RequestStatus::Ok);
+    assert(guard_calls == 7);
 
     return 0;
 }

@@ -414,6 +414,21 @@ public:
         std::function<bool(
             std::span<const std::uint8_t>)>;
 
+    // An embedder may bind the connection-local peer id to a VERIFIED
+    // mTLS principal, then evaluate an exact-key AccessPolicy here.
+    // The numeric peer id alone is not an authenticated identity.
+    // Absent a callback, legacy behavior remains unchanged.
+    using RequestAuthorizer =
+        std::function<bool(RequestPeerId, const RequestKey&)>;
+
+    void set_request_authorizer(RequestAuthorizer callback) {
+        request_authorizer_ = std::move(callback);
+    }
+
+    void clear_request_authorizer() noexcept {
+        request_authorizer_ = {};
+    }
+
     RequestTransportCore(
         HostRuntimeCore& host,
         RequestReplyCore& requests,
@@ -544,6 +559,25 @@ public:
         if (!send_reply) {
             throw std::invalid_argument(
                 "CitoQ remote reply sender is empty");
+        }
+
+        // Fail closed when an opt-in authorizer rejects or throws.
+        // Do not publish handler availability or invoke user code.
+        if (request_authorizer_) {
+            bool allowed = false;
+            try {
+                allowed = request_authorizer_(peer, frame.key);
+            } catch (...) {
+                allowed = false;
+            }
+            if (!allowed) {
+                const auto reply =
+                    encode_request_transport_reply(
+                        frame.request_id,
+                        RequestStatus::Unavailable,
+                        {});
+                return send_reply(reply);
+            }
         }
 
         const InboundRequestKey
@@ -982,6 +1016,7 @@ private:
         inbound_;
 
     RecentRequestIds recent_requests_;
+    RequestAuthorizer request_authorizer_;
 };
 
 } // namespace citoq::detail
