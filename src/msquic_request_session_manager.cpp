@@ -866,7 +866,7 @@ private:
                 to - from).count();
         };
         std::fprintf(stderr,
-            "CITOQ_QUIC_STAGE stream_open_start_ns=%lld stream_send_ns=%lld queued=%d\\n",
+            "CITOQ_QUIC_STAGE stream_open_start_ns=%lld stream_send_ns=%lld queued=%d\n",
             static_cast<long long>(ns(trace_begin, trace_after_start)),
             static_cast<long long>(ns(trace_after_start, trace_after_send)),
             static_cast<int>(queued));
