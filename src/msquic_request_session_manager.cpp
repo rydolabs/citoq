@@ -18,6 +18,13 @@
 #include <utility>
 #include <vector>
 
+// Controlled A/B experiment: a public Context publish from the native
+// runtime's established loop-owner thread can bypass the posted send queue.
+// Other threads retain the existing queued path, and the default stays off.
+#ifndef CITOQ_QUIC_INLINE_OWNER_SEND
+#define CITOQ_QUIC_INLINE_OWNER_SEND 0
+#endif
+
 namespace citoq::detail {
 
 namespace {
@@ -281,6 +288,17 @@ public:
 
     std::size_t poll(
         std::size_t max_events) {
+#if CITOQ_QUIC_INLINE_OWNER_SEND
+        // The public NativeRuntime API requires exactly one poll owner.
+        // Register only the initial owner, avoiding locks on later polls.
+        if (!owner_known_.load(std::memory_order_acquire)) {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            if (!owner_known_.load(std::memory_order_relaxed)) {
+                owner_thread_id_ = std::this_thread::get_id();
+                owner_known_.store(true, std::memory_order_release);
+            }
+        }
+#endif
         std::size_t count = 0;
 
         while (
@@ -765,6 +783,21 @@ private:
             owned(
                 bytes.begin(),
                 bytes.end());
+
+#if CITOQ_QUIC_INLINE_OWNER_SEND
+        // Bypass a mutex-protected event queue + wake-pipe round trip when
+        // publish already executes on the runtime's single owner thread.
+        // The thread id is protected by the same queue mutex as post().
+        bool on_owner = false;
+        if (owner_known_.load(std::memory_order_acquire)) {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            on_owner = owner_thread_id_ == std::this_thread::get_id();
+        }
+        if (on_owner) {
+            send_packet(destination, std::move(owned));
+            return true;
+        }
+#endif
 
         post(
             [this,
@@ -1664,6 +1697,10 @@ private:
             0};
 
     std::mutex queue_mutex_;
+#if CITOQ_QUIC_INLINE_OWNER_SEND
+    std::thread::id owner_thread_id_{};
+    std::atomic<bool> owner_known_{false};
+#endif
     std::deque<
         std::function<void()>>
         events_;
