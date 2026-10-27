@@ -44,6 +44,8 @@ def main():
     conf.insert_json5("mode", '"peer"')
     # Multicast discovery across the Linux bridge; do not secretly attach a local router.
     conf.insert_json5("scouting/multicast/enabled", "true")
+    # Force network transport across namespaces sharing the Linux IPC domain.
+    conf.insert_json5("transport/shared_memory/enabled", "false")
     with zenoh.open(conf) as session:
         pubs = []
         subs = []

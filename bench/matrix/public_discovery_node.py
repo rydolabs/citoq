@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Public Context + native mTLS/QUIC multi-node readiness probe, not a cross-engine fair ranking."""
+import argparse,json,struct,sys,time
+import citoq
+from citoq.native_runtime import NativeRuntime
+TYPE=424242
+RESOURCE="robot_1"
+def now():return time.monotonic_ns()
+def main():
+ p=argparse.ArgumentParser()
+ p.add_argument("role",choices=("publisher","subscriber","negative"))
+ p.add_argument("--index",type=int,required=True)
+ p.add_argument("--nodes",type=int,required=True)
+ p.add_argument("--count",type=int,default=8)
+ p.add_argument("--ca",required=True)
+ p.add_argument("--server-cert",required=True)
+ p.add_argument("--server-key",required=True)
+ p.add_argument("--client-cert",required=True)
+ p.add_argument("--client-key",required=True)
+ a=p.parse_args()
+ pub=a.role=="publisher"
+ opts=dict(coordinator=20 if pub else 50+a.index,
+           incarnation=2001 if pub else 5001+a.index,
+           destination=0 if pub else 77+a.index,
+           control_port=47465 if pub else 47600,
+           quic_port=0 if pub else 4465,
+           trusted_server_ca=a.ca,
+           server_cert=a.server_cert if not pub else None,
+           server_key=a.server_key if not pub else None,
+           client_ca=a.ca if not pub else None,
+           client_cert=a.client_cert if pub else None,
+           client_key=a.client_key if pub else None,
+           announcement_ipv4=None if pub else "10.202.0.11",
+           announcement_port=0 if pub else 47465)
+ seen=set()
+ duplicates=0
+ invalid=0
+ def recv(data):
+  nonlocal duplicates,invalid
+  b=bytes(data)
+  if len(b)<9 or b[0]!=ord("D"):
+   return
+  seq=struct.unpack_from("<Q",b,1)[0]
+  if not 1<=seq<=a.count:
+   invalid+=1
+  elif seq in seen:
+   duplicates+=1
+  else:
+   seen.add(seq)
+ with NativeRuntime(**opts) as transport, citoq.Context("acme") as ctx:
+  if not pub:
+   sub_type=TYPE if a.role=="subscriber" else TYPE+10000
+   ctx.subscribe_raw(sub_type,recv,RESOURCE)
+   print("RECEIVER_READY",flush=True)
+   until=time.monotonic()+32
+   while time.monotonic()<until:
+    transport.poll()
+    if a.role=="subscriber" and len(seen)==a.count:break
+    if a.role=="negative" and time.monotonic()>until-2:break
+    time.sleep(.0005)
+   print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,received=len(seen),duplicates=duplicates,invalid=invalid)),flush=True)
+   return 0 if (a.role=="negative" and len(seen)==0 or a.role=="subscriber" and len(seen)==a.count) and duplicates==0 and invalid==0 else 2
+  ctx.advertise_raw(TYPE,RESOURCE)
+  t0=now()
+  target=a.nodes-2
+  matched=0
+  until=time.monotonic()+27
+  probe=0
+  while time.monotonic()<until:
+   transport.poll()
+   probe+=1
+   matched=ctx.publish_raw(TYPE,b"P"+struct.pack("<Q",probe),RESOURCE)
+   transport.poll()
+   if matched==target:break
+   time.sleep(.025)
+  ready_ms=(now()-t0)/1e6 if matched==target else None
+  if ready_ms is not None:
+   print(f"PUBLIC_DISCOVERY_READY elapsed_ms={ready_ms:.3f}",flush=True)
+   for i in range(1,a.count+1):
+    sent=ctx.publish_raw(TYPE,b"D"+struct.pack("<Q",i),RESOURCE)
+    transport.poll()
+    if sent!=target:
+     print("PUBLIC_SEND_FAILED "+str(sent),flush=True)
+     return 3
+    time.sleep(.01)
+   until=time.monotonic()+1.5
+   while time.monotonic()<until:
+    transport.poll();time.sleep(.0005)
+  print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,matched=matched,expected=target,ready_ms=ready_ms)),flush=True)
+  return 0 if matched==target else 4
+if __name__=="__main__":
+ try:sys.exit(main())
+ except Exception as exc:
+  import traceback
+  traceback.print_exc()
+  sys.exit(10)

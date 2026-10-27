@@ -131,6 +131,9 @@ def zenoh_run(args, collector):
     cfg=zenoh.Config()
     cfg.insert_json5("mode", '"peer"')
     cfg.insert_json5("scouting/multicast/enabled", "false")
+    # Zenoh 1.10 auto-promotes >=3072-byte same-host messages to SHM.
+    # Linux netns share IPC: force the actual TCP/veth path for network A/B.
+    cfg.insert_json5("transport/shared_memory/enabled", "false")
     if args.role=="receiver":
         cfg.insert_json5("listen/endpoints", '["tcp/0.0.0.0:7447"]')
     else:
