@@ -1,0 +1,87 @@
+name: CitoQ public mTLS QUIC latency A/B regression
+on:
+  push:
+    branches: ['bench/**']
+    paths:
+      - 'benchmark/**'
+      - '.github/workflows/benchmark-citoq-latency.yml'
+  pull_request:
+    paths:
+      - 'benchmark/**'
+      - '.github/workflows/benchmark-citoq-latency.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  citoq-p95-ab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin source and install tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e 08188eba73284dd1069016174ad216f5e02d2cfa^{commit}
+          git merge-base --is-ancestor 08188eba73284dd1069016174ad216f5e02d2cfa HEAD
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake openssl iproute2 iputils-ping python3-venv
+      - name: Install pinned MsQuic 2.6.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://packages.microsoft.com/ubuntu/24.04/prod/pool/main/libm/libmsquic/libmsquic_2.6.1_amd64.deb -o /tmp/libmsquic.deb
+          sudo dpkg -i /tmp/libmsquic.deb
+          for header in msquic.h msquic_posix.h quic_sal_stub.h; do
+            sudo curl -fsSL "https://raw.githubusercontent.com/microsoft/msquic/v2.6.1/src/inc/$header" -o "/usr/local/include/$header"
+          done
+          SO="$(find /usr/lib /lib -type f -name 'libmsquic.so*' -print -quit)"
+          test -n "$SO"
+          sudo ln -sf "$SO" /usr/local/lib/libmsquic.so
+      - name: Build pinned CitoQ native mTLS driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-benchmark -G Ninja -DCMAKE_BUILD_TYPE=Release -DCITOQ_ENABLE_MSQUIC=ON -DBUILD_TESTING=OFF
+          cmake --build build-benchmark --target citoq_c citoq_native --parallel 2
+          test -s build-benchmark/libcitoq.so
+          test -s build-benchmark/libcitoq_native.so
+      - name: Create ephemeral mTLS certificates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-certs
+          cd benchmark-certs
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout ca.key -out ca.pem -subj '/CN=CitoQ Benchmark Root' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
+          openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj '/CN=10.217.0.2' >/dev/null 2>&1
+          printf '%s\n' 'subjectAltName=IP:10.217.0.2' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature,keyEncipherment' 'extendedKeyUsage=serverAuth' > server.ext
+          openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 1 -extfile server.ext >/dev/null 2>&1
+          openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj '/CN=CitoQ Benchmark Client' >/dev/null 2>&1
+          printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' 'extendedKeyUsage=clientAuth' > client.ext
+          openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 1 -extfile client.ext >/dev/null 2>&1
+          openssl verify -CAfile ca.pem -verify_ip 10.217.0.2 server.pem
+          openssl verify -CAfile ca.pem -purpose sslclient client.pem
+
+      - name: Unit test publisher-to-QUIC-poll ordering
+        run: python3 -m unittest discover -s benchmark -p 'test_*.py' -v
+      - name: Same-build CitoQ legacy vs immediate send poll, 3 baseline repetitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mode in legacy immediate; do
+            python3 benchmark/run_comparison.py --python "$(command -v python3)" \
+              --engines citoq --count 200 --payload 256 --rate 100 --repeats 3 --profiles baseline \
+              --citoq-poll-mode "$mode" --output-dir "benchmark-evidence/$mode"
+          done
+          python3 benchmark/verify_poll_fix.py --legacy benchmark-evidence/legacy/summary.json \
+            --immediate benchmark-evidence/immediate/summary.json \
+            --report benchmark-evidence/poll-fix-report.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: citoq-mtls-quic-latency-ab
+          path: benchmark-evidence/
+          if-no-files-found: warn
