@@ -2,7 +2,7 @@
 
 ## Evidence / identity
 
-- **Pinned CitoQ product code:** [08188eba73284dd1069016174ad216f5e02d2cfa](https://github.com/rydolabs/citoq/commit/08188eba73284dd1069016174ad216f5e02d2cfa). Tested harness includes the explicit **post-publish \`NativeRuntime.poll()\`** fix; production CitoQ binaries otherwise identical to pin.
+- **Pinned CitoQ product code:** [08188eba73284dd1069016174ad216f5e02d2cfa](https://github.com/rydolabs/citoq/commit/08188eba73284dd1069016174ad216f5e02d2cfa). Tested harness includes the explicit **post-publish `NativeRuntime.poll()`** fix; production CitoQ binaries otherwise identical to pin.
 - **Corrected public API payload-size matrix:** [Actions run #40437891430](https://github.com/rydolabs/citoq/actions/runs/40437891430), [raw artifact #12705411179](https://github.com/rydolabs/citoq/actions/runs/40437891430/artifacts/12705411179). **40/40 accepted**, every trial received **200/200** unique samples, 0 invalid and duplicate samples.
 - **Public CitoQ multi-node QUIC:** [Actions run #40437891335](https://github.com/rydolabs/citoq/actions/runs/40437891335), artifacts [3-node #12705051764](https://github.com/rydolabs/citoq/actions/runs/40437891335/artifacts/12705051764), [10-node #12704763591](https://github.com/rydolabs/citoq/actions/runs/40437891335/artifacts/12704763591), [30-node #12703974815](https://github.com/rydolabs/citoq/actions/runs/40437891335/artifacts/12703974815): **3/3 jobs PASS**.
 - **Internal UDP research-adapter node matrix:** first full [3/10/30 run #40437015227](https://github.com/rydolabs/citoq/actions/runs/40437015227) **24/24 accepted**. Corrected Zenoh-SHM-disabled [run #40437891797](https://github.com/rydolabs/citoq/actions/runs/40437891797): 10-node and 30-node jobs each **8/8 accepted**. Any still-pending 3-node repeat should not be described as passed.
@@ -12,7 +12,7 @@ All data were gathered on Ubuntu 24.04 GitHub Actions runners with separate Linu
 
 ## A. Shipping public API payload size: corrected CitoQ mTLS QUIC
 
-Two repetitions per engine/size, each 200 application messages at 100 Hz, baseline with no deliberate netem loss/delay. Message content embeds sequence and timestamp; one-way **application-to-application** p95 and p99 include language, serialization and event-loop overhead. CitoQ drives \`NativeRuntime.poll()\` immediately **after each publish** to avoid previous 10 ms benchmark queueing error.
+Two repetitions per engine/size, each 200 application messages at 100 Hz, baseline with no deliberate netem loss/delay. Message content embeds sequence and timestamp; one-way **application-to-application** p95 and p99 include language, serialization and event-loop overhead. CitoQ drives `NativeRuntime.poll()` immediately **after each publish** to avoid previous 10 ms benchmark queueing error.
 
 | Application bytes | CitoQ mTLS/QUIC p95 ms | Cyclone DDS RELIABLE UDP p95 ms | Zenoh peer TCP p95 ms | Fast DDS RELIABLE UDPv4 p95 ms |
 | ---: | ---: | ---: | ---: | ---: |
@@ -38,11 +38,11 @@ These are the **median of two per-trial p95 values**, not pooled p95 and not a m
 
 ### Invalid first attempt and SHM correction
 
-The **first** 40/40 delivered payload sweep, [run #40437015103](https://github.com/rydolabs/citoq/actions/runs/40437015103), left Zenoh's automatic same-host shared-memory optimization enabled. In that run, 4KiB/16KiB Zenoh bridge ingress inexplicably showed **33,769 / 59,155 bytes**, below the 200× application payload bytes. This is consistent with Zenoh 1.10's automatic SHM promotion at a 3,072-byte threshold. Linux **network namespaces do not isolate host IPC**, so this invalidated network-only traffic comparisons at those payload sizes. The harness now calls \`cfg.insert_json5("transport/shared_memory/enabled", "false")\` for Zenoh (and Fast DDS already forced UDPv4-only), yielding **849,650 / 3,307,954 bytes** at 4KiB/16KiB on the passing corrected run. References: [Zenoh 1.10 release note](https://zenoh.io/blog/2026-08-17-zenoh-1.10/) and [Zenoh Config](https://docs.rs/zenoh/latest/zenoh/struct.Config.html). Do not use the earlier off-veth measurements as proof of Zenoh's on-wire efficiency.
+The **first** 40/40 delivered payload sweep, [run #40437015103](https://github.com/rydolabs/citoq/actions/runs/40437015103), left Zenoh's automatic same-host shared-memory optimization enabled. In that run, 4KiB/16KiB Zenoh bridge ingress inexplicably showed **33,769 / 59,155 bytes**, below the 200× application payload bytes. This is consistent with Zenoh 1.10's automatic SHM promotion at a 3,072-byte threshold. Linux **network namespaces do not isolate host IPC**, so this invalidated network-only traffic comparisons at those payload sizes. The harness now calls `cfg.insert_json5("transport/shared_memory/enabled", "false")` for Zenoh (and Fast DDS already forced UDPv4-only), yielding **849,650 / 3,307,954 bytes** at 4KiB/16KiB on the passing corrected run. References: [Zenoh 1.10 release note](https://zenoh.io/blog/2026-08-17-zenoh-1.10/) and [Zenoh Config](https://docs.rs/zenoh/latest/zenoh/struct.Config.html). Do not use the earlier off-veth measurements as proof of Zenoh's on-wire efficiency.
 
 ## B. Real CitoQ public mTLS QUIC: N-node publisher readiness
 
-One *already-running* set of N-2 interested subscribers and one noninterested subscriber, each with its own network namespace, listening QUIC server, discovery announcements and ephemeral test certificate. Start one public-API publisher afterwards and record elapsed time from its advertise/loop start to \`Context.publish_raw()\` reporting all **N-2** interested destinations. Publisher then sends eight unique messages to each interested reader; noninterested receiver should receive zero. All identities are mutually authenticated with the benchmark's ephemeral test CA.
+One *already-running* set of N-2 interested subscribers and one noninterested subscriber, each with its own network namespace, listening QUIC server, discovery announcements and ephemeral test certificate. Start one public-API publisher afterwards and record elapsed time from its advertise/loop start to `Context.publish_raw()` reporting all **N-2** interested destinations. Publisher then sends eight unique messages to each interested reader; noninterested receiver should receive zero. All identities are mutually authenticated with the benchmark's ephemeral test CA.
 
 | Total nodes | Interested readers | Sender readiness (ms, single trial) | Actual / expected deliveries | Uninterested received | Full bridge ingress bytes |
 | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -54,7 +54,7 @@ Readiness is measured **after the sender's initial native runtime construction**
 
 ## C. N-node selective-interest research UDP adapters — different CitoQ stack!
 
-One publisher, N-2 matching subscribers and one unrelated subscriber; four topics, two subscribed (50%), 256B application messages, four samples per topic at 10Hz, two repetitions per implementation. CitoQ is **\`citoq::detail::UdpRuntimeAdapter\`**, **not** shipping \`Context\` / native QUIC or mTLS. Cyclone and Fast DDS use BEST_EFFORT UDP; Zenoh peer TCP is not equivalent QoS.
+One publisher, N-2 matching subscribers and one unrelated subscriber; four topics, two subscribed (50%), 256B application messages, four samples per topic at 10Hz, two repetitions per implementation. CitoQ is **`citoq::detail::UdpRuntimeAdapter`**, **not** shipping `Context` / native QUIC or mTLS. Cyclone and Fast DDS use BEST_EFFORT UDP; Zenoh peer TCP is not equivalent QoS.
 
 **Median host-veth RX bytes accumulated before the publisher prints its local "ready" line** (approximate 50ms sampling; includes the subscriber setup period, announcements and other prepublication traffic):
 
@@ -74,7 +74,7 @@ One publisher, N-2 matching subscribers and one unrelated subscriber; four topic
 | 10 | 61.5 | 3.5 | 2.0 | 85.5 |
 | 30 | 151.5 | 37.5 | 9.5 | 1,611.5 |
 
-**Do not rank "fastest Discovery" from this table:** DDS endpoints, Zenoh \`matching_status\`, and CitoQ interest routing mark readiness differently; startup segments are not normalized. For 30 nodes, **all four engines delivered 448/448 across their two runs**, and the unrelated subscriber received zero application messages.
+**Do not rank "fastest Discovery" from this table:** DDS endpoints, Zenoh `matching_status`, and CitoQ interest routing mark readiness differently; startup segments are not normalized. For 30 nodes, **all four engines delivered 448/448 across their two runs**, and the unrelated subscriber received zero application messages.
 
 ## Recommended peer group and next acceptance tests
 
