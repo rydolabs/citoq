@@ -28,7 +28,8 @@ def main():
             r.get("zenoh_auth_control")!="rogue" or
             r.get("accepted") is not False or
             r.get("received_unique",0)!=0 or
-            r.get("sender_exit")==0):
+            r.get("missing")!=20 or
+            r.get("receiver_exit")!=0):
             errors.append("unauthorized-client trial was accepted or not correctly labeled: "+str(r))
     logfile=args.root/"baseline-zenoh-r1-sender.log"
     log=logfile.read_text(errors="replace") if logfile.exists() else ""
