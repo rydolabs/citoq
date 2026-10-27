@@ -54,7 +54,33 @@ The **standardized observable result** is from orchestration immediately before 
 
 Time-to-all-first-data values are median of 2 per-trial measurements; full veth RX includes receiver startup, control, application data and lifetime heartbeat bytes. **CitoQ startup-to-first-data is slower on both verified node counts**. At 10 nodes its full veth RX is in the same approximate range as Cyclone DDS; the comparison does not establish superiority.
 
-**30-node state:** a separate 30-node job was initiated in the same workflow but had not completed at the time of this report's first update. Do **not** fabricate or impute a 30-node multi-engine comparison result. Earlier CitoQ-only public API mTLS 30-node functional smoke did pass with 224/224 deliveries: [run #40437891335](https://github.com/rydolabs/citoq/actions/runs/40437891335), but it is not a synchronized same-runner four-engine result.
+**30-node full four-engine job also passed: [run #40462524812](https://github.com/rydolabs/citoq/actions/runs/40462524812), [30-node raw artifact #12715760534](https://github.com/rydolabs/citoq/actions/runs/40462524812/artifacts/12715760534). All 3 node-matrix jobs passed; exactly 8/8 accepted application-API trials per node count, **24/24 total**, 0 invalid/duplicate/missing messages.**
+
+| Engine public API | 3-node first-data-to-all (ms) | 10-node (ms) | 30-node (ms) | 3-node full veth RX bytes | 10-node | 30-node |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **CitoQ Context mTLS/QUIC** | 743.8 | 756.2 | 756.3 | 52,634 | 322,147 | **1,100,897** |
+| Cyclone DDS C | 512.9 | 526.8 | 538.9 | 24,768 | 326,134 | 4,191,209 |
+| Zenoh peer Python TCP | 532.0 | 542.2 | 544.2 | 12,783 | 263,568 | 4,759,572 |
+| Fast DDS C++ UDPv4 | 592.6 | 681.2 | 3,590.3 | 81,696 | 1,450,436 | 24,203,660 |
+
+At **30 nodes**, CitoQ's whole-trial RX was **73.7% lower than Cyclone DDS** and **76.9% lower than Zenoh** on this particular workload, *despite using mTLS*. At **3 nodes**, CitoQ consumed **more** bytes than Cyclone/Zenoh, and at **10 nodes** it was approximately even with Cyclone but higher than Zenoh. This shows an interesting **observed scaling crossover** at 30 nodes, **not a proven general protocol advantage**. Runs are only twice repeated and full veth RX includes initial receivers, handshakes, control, maintenance and application data. Relative results may change with session lifetime, interest fraction and encryption parity.
+
+CitoQ reached the last interested reader **~217ms after Cyclone** and **~212ms after Zenoh** at 30 nodes. Its security handshake and discovery readiness remain an important optimization target. The first-data-to-all measurement includes a fixed 500ms delay after publisher-specific readiness; it is neither a peer-invariant discovery-only time nor a simultaneous cold-start result.
+
+**Same-runner before first data RX, excluding the pre-publisher receiver start:** CitoQ **610,024 bytes**, Cyclone **757,279**, Zenoh **457,233**, Fast DDS **4,603,613** at 30 nodes. This is an approximate **25/50ms-sampled** startup-to-first-data counter and includes probe/handshake/application bytes; it does not isolate discovery traffic.
+
+**Candidate 40/40 public-API payload-size comparison also passed**: [run #40463065417](https://github.com/rydolabs/citoq/actions/runs/40463065417), [raw artifact #12715640893](https://github.com/rydolabs/citoq/actions/runs/40463065417/artifacts/12715640893). It uses the source with the MsQuic buffer-move improvement, not the earlier unmodified source.
+
+| Nominal payload | CitoQ mTLS p95 median | Cyclone DDS | Zenoh peer TCP | Fast DDS |
+| ---: | ---: | ---: | ---: | ---: |
+| 64B | 0.683ms | 0.663ms | 0.200ms | 0.609ms |
+| 256B | 0.695ms | 0.664ms | 0.206ms | 0.619ms |
+| 1KiB | 0.705ms | 0.700ms | 0.190ms | 0.622ms |
+| 4KiB | 0.706ms | 0.774ms | 0.216ms | 0.599ms |
+| 16KiB | 0.768ms | 1.389ms | 0.210ms | 0.655ms |
+
+All 40 trials delivered 200/200 payloads at **100Hz**; this is **not** a maximum-throughput test. The 16KiB CitoQ result is below 1ms while its public mTLS/QUIC and double application-runtime transitions remain in place. The peers have different cryptography and QoS.
+
 
 ## Ongoing improvement priorities backed by evidence
 
