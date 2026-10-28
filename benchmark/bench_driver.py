@@ -66,9 +66,26 @@ class Collector:
             if not times:
                 return None
             return times[min(len(times)-1, int(round((len(times)-1)*p)))] / 1000
+        # Post-process sequence windows only after reception finishes.
+        # This adds no timing or allocations to the hot receive callback and
+        # separates early-burst behavior from the steady-state distribution.
+        def segment_p95(start, end):
+            section = sorted(
+                delay for seq, delay in self.seen.items()
+                if start <= seq <= end)
+            if not section:
+                return None
+            return section[min(len(section)-1, int(round((len(section)-1)*.95)))] / 1000
+
         return {
             "engine": engine,
             "expected": self.expected,
+            "latency_us_first_100_p95": segment_p95(1, min(100,self.expected)),
+            "latency_us_last_100_p95": segment_p95(max(1,self.expected-99),self.expected),
+            "latency_us_after_first_200_p95": (
+                segment_p95(201,self.expected)
+                if self.expected > 200 else None
+            ),
             "received_unique": len(times),
             "duplicates": self.duplicates,
             "invalid": self.invalid,
