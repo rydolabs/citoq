@@ -668,12 +668,12 @@ private:
         return true;
     }
 
-#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
-        trace_[0].fetch_add(1,std::memory_order_relaxed);
-#endif
     bool connect(
         DestinationId destination,
         UdpEndpoint endpoint) {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[0].fetch_add(1,std::memory_order_relaxed);
+#endif
         if (
             destination == 0 ||
             endpoint.ipv4 == 0 ||
@@ -815,13 +815,13 @@ private:
         return true;
     }
 
-#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
-        trace_[8].fetch_add(1,std::memory_order_relaxed);
-#endif
     void send_packet(
         DestinationId destination,
         std::vector<std::uint8_t>
             bytes) {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[8].fetch_add(1,std::memory_order_relaxed);
+#endif
         const auto it =
             outbound_.find(
                 destination);
@@ -830,10 +830,10 @@ private:
             it == outbound_.end() ||
             !it->second->connected.load(
                     std::memory_order_acquire) ||
-#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
-        trace_[9].fetch_add(1,std::memory_order_relaxed);
-#endif
             !it->second->handle) {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+            trace_[9].fetch_add(1,std::memory_order_relaxed);
+#endif
             runtime_.request_network()
                 .detach_session(
                     destination,
@@ -1401,7 +1401,7 @@ private:
                 ConnectionState>();
 
 #if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
-        trace_[2].fetch_add(1,std::memory_order_relaxed);
+        self->trace_[2].fetch_add(1,std::memory_order_relaxed);
 #endif
         state->handle =
             event->
@@ -1502,10 +1502,10 @@ private:
                 }
                 break;
 
-#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
-        trace_[12].fetch_add(1,std::memory_order_relaxed);
-#endif
             case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED: {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+                self->trace_[12].fetch_add(1,std::memory_order_relaxed);
+#endif
                 auto stream =
                     std::make_shared<
                         StreamState>();
@@ -1593,10 +1593,10 @@ private:
             stream_context->state;
 
         switch (event->Type) {
-#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
-        trace_[13].fetch_add(1,std::memory_order_relaxed);
-#endif
             case QUIC_STREAM_EVENT_RECEIVE: {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+                self->trace_[13].fetch_add(1,std::memory_order_relaxed);
+#endif
                 std::size_t total = 0;
 
                 for (
