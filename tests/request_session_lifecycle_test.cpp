@@ -155,6 +155,18 @@ int main() {
             77));
     assert(sessions.reconcile().empty());
 
+    // Existing valid Discovery route must survive transient QUIC closure.
+    assert(sessions.mark_disconnected(77));
+    assert(!sessions.is_connected(77));
+    actions = sessions.reconcile();
+    assert(actions.size() == 1);
+    assert(actions[0].kind == RequestSessionActionKind::Connect);
+    assert(actions[0].destination == 77);
+    const UdpEndpoint expected_reconnect{0x0a000002u, 4433};
+    assert(actions[0].endpoint == expected_reconnect);
+    assert(sessions.mark_connected(77, actions[0].endpoint));
+    assert(sessions.is_connected(77));
+
     // A route endpoint change produces Disconnect(old) + Connect(new).
     provider_endpoint[0].quic_port =
         4444;

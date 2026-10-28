@@ -28,8 +28,9 @@ def setup():
 def set_profile(profile):
     for ns in NS:
         cmd("sudo","ip","netns","exec",ns,"tc","qdisc","del","dev","eth0","root",check=False)
-        if profile=="netem_10ms_1pct":
-            cmd("sudo","ip","netns","exec",ns,"tc","qdisc","add","dev","eth0","root","netem","delay","10ms","2ms","loss","1%")
+        if profile in ("netem_10ms_1pct","netem_10ms_2pct"):
+            loss = "1%" if profile=="netem_10ms_1pct" else "2%"
+            cmd("sudo","ip","netns","exec",ns,"tc","qdisc","add","dev","eth0","root","netem","delay","10ms","2ms","loss",loss)
         (OUT/f"qdisc-{profile}-{ns}.txt").write_text(cmd("sudo","ip","netns","exec",ns,"tc","-s","qdisc","show","dev","eth0").stdout)
 def bytes_total():
     return {f"{name}_{direction}":int(pathlib.Path(f"/sys/class/net/{name}/statistics/{direction}_bytes").read_text())

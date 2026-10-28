@@ -7,6 +7,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+#include <cstdio>
+#endif
 #include <deque>
 #include <functional>
 #include <memory>
@@ -180,6 +183,33 @@ public:
 
     ~Impl() {
         shutdown();
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        // Emit one post-shutdown summary; no hot-path I/O or secrets.
+        std::fprintf(stderr,
+            "CITOQ_LOSS_TRACE attempts=%llu client_connected=%llu "
+            "server_accepted=%llu server_connected=%llu client_closed=%llu "
+            "server_closed=%llu transport_closed=%llu enqueued=%llu "
+            "dequeued=%llu discarded=%llu stream_started=%llu send_accepted=%llu "
+            "send_completed=%llu server_streams=%llu rx_events=%llu "
+            "ctd1_dispatch=%llu outstanding=%zu\n",
+            (unsigned long long)trace_[0].load(),
+            (unsigned long long)trace_[1].load(),
+            (unsigned long long)trace_[2].load(),
+            (unsigned long long)trace_[3].load(),
+            (unsigned long long)trace_[4].load(),
+            (unsigned long long)trace_[5].load(),
+            (unsigned long long)trace_[6].load(),
+            (unsigned long long)trace_[7].load(),
+            (unsigned long long)trace_[8].load(),
+            (unsigned long long)trace_[9].load(),
+            (unsigned long long)trace_[10].load(),
+            (unsigned long long)trace_[11].load(),
+            (unsigned long long)completed_sends_.load(),
+            (unsigned long long)trace_[12].load(),
+            (unsigned long long)trace_[13].load(),
+            (unsigned long long)trace_[14].load(),
+            outstanding_sends_.load());
+#endif
 
         if (server_configuration_) {
             api_->ConfigurationClose(
@@ -641,6 +671,9 @@ private:
     bool connect(
         DestinationId destination,
         UdpEndpoint endpoint) {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[0].fetch_add(1,std::memory_order_relaxed);
+#endif
         if (
             destination == 0 ||
             endpoint.ipv4 == 0 ||
@@ -766,6 +799,9 @@ private:
                 bytes.begin(),
                 bytes.end());
 
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[7].fetch_add(1,std::memory_order_relaxed);
+#endif
         post(
             [this,
              destination,
@@ -783,6 +819,9 @@ private:
         DestinationId destination,
         std::vector<std::uint8_t>
             bytes) {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[8].fetch_add(1,std::memory_order_relaxed);
+#endif
         const auto it =
             outbound_.find(
                 destination);
@@ -792,6 +831,9 @@ private:
             !it->second->connected.load(
                     std::memory_order_acquire) ||
             !it->second->handle) {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+            trace_[9].fetch_add(1,std::memory_order_relaxed);
+#endif
             runtime_.request_network()
                 .detach_session(
                     destination,
@@ -846,6 +888,9 @@ private:
             return;
         }
 
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[10].fetch_add(1,std::memory_order_relaxed);
+#endif
         if (!send_on_stream(
                 stream,
                 std::move(bytes))) {
@@ -902,6 +947,9 @@ private:
             return false;
         }
 
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[11].fetch_add(1,std::memory_order_relaxed);
+#endif
         return true;
     }
 
@@ -963,6 +1011,9 @@ private:
             return;
         }
 
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[1].fetch_add(1,std::memory_order_relaxed);
+#endif
         state->connected.store(
             true,
             std::memory_order_release);
@@ -992,6 +1043,9 @@ private:
         state->connected.store(
             false,
             std::memory_order_release);
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[state->outbound ? 4 : 5].fetch_add(1,std::memory_order_relaxed);
+#endif
 
         if (state->outbound) {
             const auto it =
@@ -1097,6 +1151,9 @@ private:
             stream->received[2] == 'D' &&
             stream->received[3] == '1') {
             if (options_.require_client_certificate) {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        trace_[14].fetch_add(1,std::memory_order_relaxed);
+#endif
                 (void)runtime_.request_network().receive_data(
                     stream->received);
             }
@@ -1343,6 +1400,9 @@ private:
             std::make_shared<
                 ConnectionState>();
 
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+        self->trace_[2].fetch_add(1,std::memory_order_relaxed);
+#endif
         state->handle =
             event->
                 NEW_CONNECTION
@@ -1428,6 +1488,9 @@ private:
 
         switch (event->Type) {
             case QUIC_CONNECTION_EVENT_CONNECTED:
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+                if (!state->outbound) self->trace_[3].fetch_add(1,std::memory_order_relaxed);
+#endif
                 if (state->outbound) {
                     self->post(
                         [self,
@@ -1440,6 +1503,9 @@ private:
                 break;
 
             case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED: {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+                self->trace_[12].fetch_add(1,std::memory_order_relaxed);
+#endif
                 auto stream =
                     std::make_shared<
                         StreamState>();
@@ -1467,6 +1533,11 @@ private:
                 break;
             }
 
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+            case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
+                self->trace_[6].fetch_add(1,std::memory_order_relaxed);
+                break;
+#endif
             case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
                 self->post(
                     [self,
@@ -1523,6 +1594,9 @@ private:
 
         switch (event->Type) {
             case QUIC_STREAM_EVENT_RECEIVE: {
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+                self->trace_[13].fetch_add(1,std::memory_order_relaxed);
+#endif
                 std::size_t total = 0;
 
                 for (
@@ -1662,6 +1736,10 @@ private:
     std::atomic<
         std::size_t> completed_sends_{
             0};
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+    // indices 0..14 documented by the single-line CITOQ_LOSS_TRACE record.
+    std::array<std::atomic<std::uint64_t>,15> trace_{};
+#endif
 
     std::mutex queue_mutex_;
     std::deque<
