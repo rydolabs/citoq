@@ -73,6 +73,14 @@ int main() {
     assert(actions.size() == 1);
     assert(actions[0].coordinator == 10);
 
+    // Drop the first CTS2 snapshot request/response (UDP is unreliable):
+    // repeated unchanged announcements must eventually retry the missing page.
+    actions = publisher_control.on_summary(announcement, 1100);
+    assert(actions.empty()); // bounded retry: no 150ms control storm
+    actions = publisher_control.on_summary(announcement, 1301);
+    assert(actions.size() == 1);
+    assert(snapshot_request(actions[0]).offset == 0);
+
     const auto request =
         snapshot_request(
             actions[0]);
@@ -110,6 +118,12 @@ int main() {
                 position);
 
     assert(actions.size() == 1);
+    // Lose the initial CTR3 request or CTR5 response. Repeated
+    // unchanged advertisements must re-send only an unconfirmed route.
+    actions = publisher_control.on_summary(announcement, 1400);
+    assert(actions.size() == 1);
+    assert(route_request(actions[0]).key == position);
+
     const auto route =
         route_request(
             actions[0]);
@@ -142,6 +156,9 @@ int main() {
             position)
             .contains(77));
 
+    // A successfully acknowledged route should not be re-requested.
+    assert(publisher_control.on_summary(announcement, 1450).empty());
+
     // Duplicate ensure must not create control churn.
     assert(
         publisher_control
@@ -162,7 +179,7 @@ int main() {
     actions =
         publisher_control.on_summary(
             withdrawn_announcement,
-            1100);
+            1510);
 
     assert(actions.size() == 1);
 
@@ -211,10 +228,12 @@ int main() {
 
     assert(
         publisher_control.stats()
-            .snapshot_requests == 2);
+            .snapshot_requests == 3);
+    assert(publisher_control.stats().snapshot_retries == 1);
     assert(
         publisher_control.stats()
-            .route_requests == 1);
+            .route_requests == 2);
+    assert(publisher_control.stats().route_retries == 1);
 
     return 0;
 }
