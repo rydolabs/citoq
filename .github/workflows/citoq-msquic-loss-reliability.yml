@@ -1,0 +1,189 @@
+name: CitoQ QUIC inbound reconnect loss reliability gate
+
+on:
+  push:
+    branches: [main, 'refactor/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  typed-network-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native MsQuic 2.6.1 and network tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build iproute2 openssl
+          curl -fsSL https://packages.microsoft.com/ubuntu/24.04/prod/pool/main/libm/libmsquic/libmsquic_2.6.1_amd64.deb -o /tmp/libmsquic.deb
+          sudo dpkg -i /tmp/libmsquic.deb
+          for header in msquic.h msquic_posix.h quic_sal_stub.h; do
+            sudo curl -fsSL "https://raw.githubusercontent.com/microsoft/msquic/v2.6.1/src/inc/$header" -o "/usr/local/include/$header"
+          done
+          MSQUIC_SO="$(find /usr/lib /lib -type f -name 'libmsquic.so*' -print -quit)"
+          test -n "$MSQUIC_SO"
+          sudo ln -sf "$MSQUIC_SO" /usr/local/lib/libmsquic.so
+      - name: Build native public Context test binary
+        run: |
+          cmake -S . -B build-g1 -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCITOQ_ENABLE_MSQUIC=ON
+          cmake --build build-g1 --target citoq_quic_public_request_node --parallel 2
+      - name: Create ephemeral mTLS identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout ca.key -out ca.pem -subj '/CN=CitoQ G1 CI Test Root' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign'
+          openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj '/CN=10.202.0.12'
+          printf '%s\n' 'subjectAltName=IP:10.202.0.12' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature,keyEncipherment' 'extendedKeyUsage=serverAuth' > server.ext
+          openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 1 -extfile server.ext
+          openssl verify -CAfile ca.pem -verify_ip 10.202.0.12 server.pem
+          openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj '/CN=CitoQ G1 Test Client'
+          printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' 'extendedKeyUsage=clientAuth' > client.ext
+          openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 1 -extfile client.ext
+          openssl verify -CAfile ca.pem -purpose sslclient client.pem
+      - name: Real two-netns authenticated PubSub and repeated 1pct/2pct loss
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          cleanup() {
+            sudo ip netns del citoq-g1-c 2>/dev/null || true
+            sudo ip netns del citoq-g1-s 2>/dev/null || true
+            sudo ip link del br-g1 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          cleanup
+          sudo ip link add br-g1 type bridge
+          sudo ip link set br-g1 up
+          add_node() {
+            local ns="$1" host="$2" peer="$3" addr="$4"
+            sudo ip netns add "$ns"
+            sudo ip link add "$host" type veth peer name "$peer"
+            sudo ip link set "$host" master br-g1
+            sudo ip link set "$host" up
+            sudo ip link set "$peer" netns "$ns"
+            sudo ip netns exec "$ns" ip link set lo up
+            sudo ip netns exec "$ns" ip link set "$peer" name eth0
+            sudo ip netns exec "$ns" ip addr add "$addr"/24 dev eth0
+            sudo ip netns exec "$ns" ip link set eth0 up
+          }
+          add_node citoq-g1-c vg1c vg1c-ns 10.202.0.11
+          add_node citoq-g1-s vg1s vg1s-ns 10.202.0.12
+          BIN="$GITHUB_WORKSPACE/build-g1/citoq_quic_public_request_node"
+          sudo ip netns exec citoq-g1-s env CITOQ_PUBSUB_SMOKE=1 "$BIN" server 4460 47590 10.202.0.11 47460 "$GITHUB_WORKSPACE/server.pem" "$GITHUB_WORKSPACE/server.key" "$GITHUB_WORKSPACE/ca.pem" > evidence/server.log 2>&1 &
+          server_pid=$!
+          sleep 0.5
+          client_status=0
+          timeout 14s sudo ip netns exec citoq-g1-c env CITOQ_PUBSUB_SMOKE=1 "$BIN" client 47460 "$GITHUB_WORKSPACE/ca.pem" "$GITHUB_WORKSPACE/client.pem" "$GITHUB_WORKSPACE/client.key" > evidence/client.log 2>&1 || client_status=$?
+          server_status=0
+          wait "$server_pid" || server_status=$?
+          cat evidence/client.log
+          cat evidence/server.log
+          echo "G1_CLIENT_EXIT=$client_status G1_SERVER_EXIT=$server_status"
+          test "$client_status" -eq 0
+          test "$server_status" -eq 0
+          grep -q 'pubsub_sent=10' evidence/client.log
+          grep -q 'pubsub_received=10' evidence/server.log
+
+          # 1,000 distinct sequenced samples: exact receive count and no duplicates.
+          sudo ip netns exec citoq-g1-s env CITOQ_PUBSUB_SMOKE=1 CITOQ_PUBSUB_COUNT=1000 "$BIN" server 4461 47591 10.202.0.11 47461 "$GITHUB_WORKSPACE/server.pem" "$GITHUB_WORKSPACE/server.key" "$GITHUB_WORKSPACE/ca.pem" > evidence/server-1000.log 2>&1 &
+          server_stress_pid=$!
+          sleep 0.5
+          client_stress_status=0
+          timeout 30s sudo ip netns exec citoq-g1-c env CITOQ_PUBSUB_SMOKE=1 CITOQ_PUBSUB_COUNT=1000 "$BIN" client 47461 "$GITHUB_WORKSPACE/ca.pem" "$GITHUB_WORKSPACE/client.pem" "$GITHUB_WORKSPACE/client.key" > evidence/client-1000.log 2>&1 || client_stress_status=$?
+          server_stress_status=0
+          wait "$server_stress_pid" || server_stress_status=$?
+          cat evidence/client-1000.log
+          cat evidence/server-1000.log
+          echo "G1_STRESS_CLIENT_EXIT=$client_stress_status G1_STRESS_SERVER_EXIT=$server_stress_status"
+          test "$client_stress_status" -eq 0
+          test "$server_stress_status" -eq 0
+          grep -q 'pubsub_sent=1000' evidence/client-1000.log
+          grep -q 'pubsub_received=1000' evidence/server-1000.log
+          
+          # Real cross-language matrix, all with independent Linux network
+          # namespaces and server-required mTLS. C uses the stable C ABI,
+          # C++ uses the public typed Context API.
+          run_abi_case() {
+            local name="$1" server_mode="$2" client_mode="$3"
+            local quic_port="$4" server_control="$5" client_control="$6"
+            local server_env=(CITOQ_PUBSUB_SMOKE=1)
+            local client_env=(CITOQ_PUBSUB_SMOKE=1)
+            if [[ "$server_mode" = c ]]; then server_env+=(CITOQ_C_API_DATA=1); fi
+            if [[ "$client_mode" = c ]]; then client_env+=(CITOQ_C_API_DATA=1); fi
+            sudo ip netns exec citoq-g1-s env "${server_env[@]}" "$BIN" server "$quic_port" "$server_control" 10.202.0.11 "$client_control" "$GITHUB_WORKSPACE/server.pem" "$GITHUB_WORKSPACE/server.key" "$GITHUB_WORKSPACE/ca.pem" > "evidence/server-$name.log" 2>&1 &
+            local server_pid=$!
+            sleep 0.5
+            local client_status=0 server_status=0
+            timeout 18s sudo ip netns exec citoq-g1-c env "${client_env[@]}" "$BIN" client "$client_control" "$GITHUB_WORKSPACE/ca.pem" "$GITHUB_WORKSPACE/client.pem" "$GITHUB_WORKSPACE/client.key" > "evidence/client-$name.log" 2>&1 || client_status=$?
+            wait "$server_pid" || server_status=$?
+            cat "evidence/client-$name.log"
+            cat "evidence/server-$name.log"
+            echo "G4_CASE=$name client=$client_status server=$server_status"
+            test "$client_status" -eq 0
+            test "$server_status" -eq 0
+            grep -q 'pubsub_sent=10' "evidence/client-$name.log"
+            grep -q 'pubsub_received=10' "evidence/server-$name.log"
+            if [[ "$client_mode" = c ]]; then grep -q 'c_api=1' "evidence/client-$name.log"; fi
+            if [[ "$server_mode" = c ]]; then grep -q 'c_api=1' "evidence/server-$name.log"; fi
+          }
+          run_abi_case c-to-c c c 4462 47592 47462
+          run_abi_case c-to-cpp cpp c 4463 47593 47463
+          run_abi_case cpp-to-c c cpp 4464 47594 47464
+          
+          # Strict loss matrix: 30 fresh-process trials per loss level.
+          # Record every failure and continue, never accept a retry as a pass.
+          failures=0
+          total=0
+          for loss in 1 2; do
+            sudo ip netns exec citoq-g1-c tc qdisc replace dev eth0 root netem loss "$loss%"
+            for rep in $(seq 1 30); do
+              total=$((total+1))
+              quic_port=$((48000+loss*100+rep))
+              server_control=$((49000+loss*100+rep))
+              client_control=$((50000+loss*100+rep))
+              tag="loss$loss-r$rep"
+              sudo ip netns exec citoq-g1-s env CITOQ_PUBSUB_SMOKE=1 CITOQ_PUBSUB_COUNT=100 \
+                "$BIN" server "$quic_port" "$server_control" 10.202.0.11 "$client_control" \
+                "$GITHUB_WORKSPACE/server.pem" "$GITHUB_WORKSPACE/server.key" "$GITHUB_WORKSPACE/ca.pem" \
+                > "evidence/server-$tag.log" 2>&1 &
+              loss_server_pid=$!
+              sleep 0.1
+              client_status=0
+              timeout 15s sudo ip netns exec citoq-g1-c env CITOQ_PUBSUB_SMOKE=1 CITOQ_PUBSUB_COUNT=100 \
+                "$BIN" client "$client_control" "$GITHUB_WORKSPACE/ca.pem" \
+                "$GITHUB_WORKSPACE/client.pem" "$GITHUB_WORKSPACE/client.key" \
+                > "evidence/client-$tag.log" 2>&1 || client_status=$?
+              server_status=0
+              wait "$loss_server_pid" || server_status=$?
+              ok=1
+              if [[ "$client_status" != 0 || "$server_status" != 0 ]]; then ok=0; fi
+              if ! grep -q 'pubsub_sent=100' "evidence/client-$tag.log"; then ok=0; fi
+              if ! grep -q 'pubsub_received=100' "evidence/server-$tag.log"; then ok=0; fi
+              printf 'LOSS_TRIAL loss_pct=%s repetition=%s client_exit=%s server_exit=%s accepted=%s\n' \
+                "$loss" "$rep" "$client_status" "$server_status" "$ok" | tee -a evidence/loss-results.txt
+              if [[ "$ok" != 1 ]]; then
+                failures=$((failures+1))
+                tail -n 30 "evidence/client-$tag.log"
+                tail -n 30 "evidence/server-$tag.log"
+              fi
+            done
+          done
+          sudo ip netns exec citoq-g1-c tc qdisc del dev eth0 root
+          echo "LOSS_GATE_TOTAL=$total LOSS_GATE_FAILURES=$failures"
+          test "$total" -eq 60
+          test "$failures" -eq 0
+
+
+      - name: Archive success and failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: citoq-native-public-data
+          path: evidence/
+          if-no-files-found: warn

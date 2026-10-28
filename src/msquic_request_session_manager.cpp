@@ -1026,11 +1026,18 @@ private:
                 }
             }
         } else {
+            // A peer can reconnect before the old MsQuic shutdown callback
+            // reaches the single-owner event queue. The old connection must
+            // never drop the newer peer's authenticated routing/stream state.
+            const auto current = inbound_.find(state->peer);
+            if (current == inbound_.end() ||
+                current->second.get() != state.get()) {
+                return;
+            }
             runtime_.request_network()
                 .drop_peer(
                     state->peer);
-            inbound_.erase(
-                state->peer);
+            inbound_.erase(current);
 
             for (auto it =
                      inbound_streams_
