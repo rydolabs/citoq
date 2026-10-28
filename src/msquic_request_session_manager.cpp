@@ -117,6 +117,11 @@ private:
         bool finalized{false};
         std::atomic<bool> closed{
             false};
+#if defined(CITOQ_QUIC_DRAIN_ACK) && CITOQ_QUIC_DRAIN_ACK
+        // MsQuic SEND_COMPLETE releases the local app buffer, NOT a peer ACK.
+        // SEND_SHUTDOWN_COMPLETE(Graceful) is raised after FIN is acknowledged.
+        std::atomic<bool> awaiting_send_ack{false};
+#endif
     };
 
 public:
@@ -422,6 +427,19 @@ public:
                         Unavailable);
             owns_wait_hook_ = false;
         }
+
+#if defined(CITOQ_QUIC_DRAIN_ACK) && CITOQ_QUIC_DRAIN_ACK
+        // Experimental bounded FIN acknowledgment drain on shutdown. Do not
+        // terminate authenticated connections with unacknowledged data while
+        // worker callbacks can still complete asynchronously.
+        const auto ack_deadline =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
+        while (pending_acks_.load(std::memory_order_acquire) != 0 &&
+               std::chrono::steady_clock::now() < ack_deadline) {
+            poll(0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+#endif
 
         stop_listener();
 
@@ -886,6 +904,12 @@ private:
             .fetch_add(
                 1,
                 std::memory_order_relaxed);
+#if defined(CITOQ_QUIC_DRAIN_ACK) && CITOQ_QUIC_DRAIN_ACK
+        if (!stream->server_side) {
+            stream->awaiting_send_ack.store(true,std::memory_order_release);
+            pending_acks_.fetch_add(1,std::memory_order_acq_rel);
+        }
+#endif
 
         if (QUIC_FAILED(
                 api_->StreamSend(
@@ -898,6 +922,12 @@ private:
                 .fetch_sub(
                     1,
                     std::memory_order_relaxed);
+#if defined(CITOQ_QUIC_DRAIN_ACK) && CITOQ_QUIC_DRAIN_ACK
+            if (stream->awaiting_send_ack.exchange(false,
+                    std::memory_order_acq_rel)) {
+                pending_acks_.fetch_sub(1,std::memory_order_acq_rel);
+            }
+#endif
             delete send;
             return false;
         }
@@ -1616,7 +1646,27 @@ private:
                 break;
             }
 
+#if defined(CITOQ_QUIC_DRAIN_ACK) && CITOQ_QUIC_DRAIN_ACK
+            case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
+                if (stream->awaiting_send_ack.exchange(false,
+                        std::memory_order_acq_rel)) {
+                    self->pending_acks_.fetch_sub(1,std::memory_order_acq_rel);
+                    if (event->SEND_SHUTDOWN_COMPLETE.Graceful) {
+                        self->acknowledged_sends_.fetch_add(1,std::memory_order_relaxed);
+                    } else {
+                        self->unacknowledged_sends_.fetch_add(1,std::memory_order_relaxed);
+                    }
+                }
+                break;
+#endif
             case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
+#if defined(CITOQ_QUIC_DRAIN_ACK) && CITOQ_QUIC_DRAIN_ACK
+                if (stream->awaiting_send_ack.exchange(false,
+                        std::memory_order_acq_rel)) {
+                    self->pending_acks_.fetch_sub(1,std::memory_order_acq_rel);
+                    self->unacknowledged_sends_.fetch_add(1,std::memory_order_relaxed);
+                }
+#endif
                 stream->closed.store(
                     true,
                     std::memory_order_release);
@@ -1662,6 +1712,11 @@ private:
     std::atomic<
         std::size_t> completed_sends_{
             0};
+#if defined(CITOQ_QUIC_DRAIN_ACK) && CITOQ_QUIC_DRAIN_ACK
+    std::atomic<std::uint64_t> pending_acks_{0};
+    std::atomic<std::uint64_t> acknowledged_sends_{0};
+    std::atomic<std::uint64_t> unacknowledged_sends_{0};
+#endif
 
     std::mutex queue_mutex_;
     std::deque<
