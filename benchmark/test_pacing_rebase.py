@@ -38,6 +38,8 @@ class PacingRebaseTest(unittest.TestCase):
             count=12,rate=1000,payload=256,timeout=5,
             engine="citoq",citoq_poll_mode="immediate",
             pacing_mode=mode,pacing_trace=False)
+        if mode is None:
+            del args.pacing_mode
         def send(payload):
             attempted[0]+=1
             if attempted[0] == 1:
@@ -62,6 +64,9 @@ class PacingRebaseTest(unittest.TestCase):
 
     def test_rebase_preserves_one_millisecond_spacing(self):
         self.assertEqual(self.measure("rebase"),[1_000_000]*11)
+
+    def test_default_pacing_is_rebased_after_first_success(self):
+        self.assertEqual(self.measure(None),[1_000_000]*11)
 
     def test_rebase_keeps_target_rate_despite_70us_sleep_jitter(self):
         gaps = self.measure("rebase",jitter_ns=70_000)
