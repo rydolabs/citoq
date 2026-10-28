@@ -23,9 +23,6 @@ def launch(role, out, python, library, incarnation, signal_after=0,
     cert=ROOT/"benchmark-certs"
     args=[python,str(ROOT/"benchmark/bench_driver.py"),"citoq",role,
           "--count",str(EXPECTED),"--payload","256","--rate","100",
-          "--timeout","45","--cio","none"] if False else [
-          python,str(ROOT/"benchmark/bench_driver.py"),"citoq",role,
-          "--count",str(EXPECTED),"--payload","256","--rate","100",
           "--timeout","45",
           "--sender-incarnation","2001","--server-incarnation",str(incarnation),
           "--citoq-poll-mode","immediate","--citoq-rx-mode","event",
