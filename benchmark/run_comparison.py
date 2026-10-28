@@ -40,7 +40,7 @@ def set_profile(profile):
         import re
         # Fail closed: a mislabeled 2% test without netem is NOT a reliability pass.
         if loss and not ("qdisc netem" in observed and re.search(
-                r"\\bloss\\s+"+re.escape(loss[:-1])+r"(?:\\.0+)?%",observed)):
+                r"\bloss\s+"+re.escape(loss[:-1])+r"(?:\.0+)?%",observed)):
             raise RuntimeError(f"tc did not apply {profile} inside {ns}: {observed}")
         if not loss and "qdisc netem" in observed:
             raise RuntimeError(f"unexpected netem on baseline profile in {ns}")
