@@ -148,7 +148,10 @@ def citoq_run(args, collector):
             ctx.advertise_raw(TYPE_ID, "robot_1")
             paced_send(args, lambda b: ctx.publish_raw(TYPE_ID, b, "robot_1"),
                        service=transport.poll, wait_for_match=True)
-            until=time.monotonic()+1.0
+            # The pre-existing 1s sender lifetime is intentionally still
+            # the default. A longer lifetime is a diagnostic control for
+            # asynchronous server-side mTLS handshake confirmation under loss.
+            until=time.monotonic()+args.sender_drain_ms/1000
             while time.monotonic()<until:
                 transport.poll()
                 time.sleep(.0005)
@@ -354,6 +357,9 @@ def main():
     ap.add_argument("--payload",type=int,default=256)
     ap.add_argument("--rate",type=float,default=100)
     ap.add_argument("--timeout",type=float,default=16)
+    ap.add_argument("--sender-drain-ms",type=int,
+                    default=int(os.environ.get("CITOQ_BENCH_SENDER_DRAIN_MS","1000")),
+                    help="post-publish QUIC session hold; default 1000ms, diagnostic comparisons only")
     ap.add_argument("--zenoh-transport",choices=("tcp","quic-mtls"),default="tcp",
                     help="quic-mtls restricts links to QUIC with CA trust and client certificate authentication")
     ap.add_argument("--pacing-mode", choices=("legacy","rebase"),
@@ -377,6 +383,8 @@ def main():
     ap.add_argument("--client-key")
     ap.add_argument("--result")
     args=ap.parse_args()
+    if not 0<=args.sender_drain_ms<=10000:
+        ap.error("sender drain must be between 0 and 10000ms")
     if (args.count<1 or args.payload<16 or args.rate<=0 or
             not 0<=args.citoq_rx_sleep_us<=1_000_000 or
             not 0<=args.citoq_rx_wait_ms<=1000):
