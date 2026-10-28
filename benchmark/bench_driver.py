@@ -402,6 +402,14 @@ def main():
         engine(args,collector)
         if args.role=="receiver":
             report=collector.report(args.engine)
+            if args.recovery_first_seq:
+                recovery=[delay for seq,delay in collector.seen.items()
+                          if seq >= args.recovery_first_seq]
+                ordered=sorted(recovery)
+                report["recovery_received_unique"]=len(recovery)
+                report["recovery_expected"]=args.count-args.recovery_first_seq+1
+                report["recovery_p95_us"]=(ordered[min(len(ordered)-1,
+                    round((len(ordered)-1)*.95))]/1000 if ordered else None)
             if args.emit_sequences:
                 report["received_sequences"]=sorted(collector.seen)
             print("BENCH_JSON="+json.dumps(report,sort_keys=True),flush=True)
