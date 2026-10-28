@@ -38,6 +38,8 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mod
     ns=NS[0] if role=="sender" else NS[1]
     library_dir=pathlib.Path(os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark"))).resolve()
     env={"PYTHONPATH":str(ROOT/"python"),"CITOQ_LIBRARY":str(library_dir/"libcitoq.so"),"CITOQ_NATIVE_LIBRARY":str(library_dir/"libcitoq_native.so")}
+    if engine=="citoq" and role=="receiver" and os.environ.get("CITOQ_BENCH_CALLBACK_STAGE")=="1":
+        env["CITOQ_BENCH_CALLBACK_STAGE"]="1"
     if engine=="fastdds":
         args=[str(ROOT/"build-benchmark-adapter/fastdds_node"),role,str(count),str(payload),str(rate),str(result)]
     else:
