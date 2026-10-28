@@ -8,7 +8,7 @@ import statistics
 import sys
 
 TRACE = re.compile(r"CITOQ_LOSS_TRACE ([^\r\n]+)")
-VALUE = re.compile(r"([a-z_]+)=(\d+)")
+VALUE = re.compile(r"([a-z0-9_]+)=(\d+)")
 
 def trace_from(path, errors):
     if not path.is_file():
