@@ -70,8 +70,12 @@ def main():
                 if (trace.get("mode")!=mode or trace.get("count")!=args.messages or
                     trace.get("offered_hz")!=args.rate or not isinstance(trace.get("observed_hz"),(int,float))):
                     errors.append(f"{cohort} rep {rep}: invalid pacing trace {trace}")
-                if mode=="rebase" and trace.get("observed_hz",0)<850:
-                    errors.append(f"{cohort} rep {rep}: measured rate below 850Hz despite offered {args.rate}")
+                if mode=="rebase":
+                    measured = trace.get("observed_hz",0)
+                    if not 0.97*args.rate <= measured <= 1.03*args.rate:
+                        errors.append(f"{cohort} rep {rep}: achieved {measured}Hz outside 3% of {args.rate}Hz")
+                    if trace.get("short_gap_count",1000000)>3:
+                        errors.append(f"{cohort} rep {rep}: catch-up microbursts detected ({trace.get('short_gap_count')})")
                 clocks.append(trace)
             except (ValueError,KeyError) as exc:
                 errors.append(f"{cohort} rep {rep} invalid trace JSON: {exc}")
@@ -88,7 +92,8 @@ def main():
                "receiver_rss_kb":median(rows,"receiver_max_rss_kb"),
                "sender_observed_hz":median(clocks,"observed_hz"),
                "sender_short_gap_count":median(clocks,"short_gap_count"),
-               "sender_first_100_span_ms":median(clocks,"first_100_span_ms")}
+               "sender_first_100_span_ms":median(clocks,"first_100_span_ms"),
+               "sender_first_accept_wait_ms":median(clocks,"first_accept_wait_ms")}
         report["cohorts"][cohort]=entry
     for engine,legacy,rebase in (("citoq","citoq-legacy","citoq-rebase"),
                                  ("zenoh","zenoh-quic-legacy","zenoh-quic-rebase")):
