@@ -105,7 +105,7 @@ def citoq_run(args, collector):
     server = args.role == "receiver"
     with NativeRuntime(
         coordinator=50 if server else 20,
-        incarnation=5001 if server else args.sender_incarnation,
+        incarnation=args.server_incarnation if server else args.sender_incarnation,
         destination=77 if server else 0,
         control_port=47600 if server else 47465,
         quic_port=4465 if server else 0,
@@ -123,6 +123,11 @@ def citoq_run(args, collector):
                 try:
                     seq, stamp = unpack_payload(raw)
                     collector.ingest(seq, stamp, len(raw))
+                    if (args.signal_after and args.signal_file and
+                            len(collector.seen) >= args.signal_after):
+                        marker=Path(args.signal_file)
+                        if not marker.exists():
+                            marker.write_text(str(len(collector.seen))+"\n")
                 except Exception:
                     collector.invalid += 1
             ctx.subscribe_raw(TYPE_ID, receive, "robot_1")
@@ -322,6 +327,19 @@ def paced_send(args, fn, service=None, wait_for_match=False):
             if not wait_for_match or time.monotonic()>deadline:
                 raise RuntimeError("no eligible subscribers for sample "+str(n))
             time.sleep(.005)
+        if n == getattr(args,"pause_after",0):
+            if not args.resume_file:
+                raise RuntimeError("pause-after requires resume-file")
+            print("SENDER_PAUSE_AT="+str(n),flush=True)
+            wait_until=time.monotonic()+args.timeout
+            while not Path(args.resume_file).exists():
+                if time.monotonic()>wait_until:
+                    raise RuntimeError("sender phase resume signal timeout")
+                if service:
+                    service()
+                time.sleep(.005)
+            # New phase starts a fresh paced epoch; never flush missed slots.
+            next_ns=now_ns()
         next_ns += interval
         delay = (next_ns - now_ns())/1e9
         if delay > 0:
@@ -361,6 +379,11 @@ def main():
     ap.add_argument("--timeout",type=float,default=16)
     ap.add_argument("--first-seq",type=int,default=1,
                     help="sender sequence offset for multi-process restart probes")
+    ap.add_argument("--server-incarnation",type=int,default=5001)
+    ap.add_argument("--pause-after",type=int,default=0)
+    ap.add_argument("--resume-file")
+    ap.add_argument("--signal-after",type=int,default=0)
+    ap.add_argument("--signal-file")
     ap.add_argument("--sender-incarnation",type=int,default=2001,
                     help="distinct sender incarnation after a forced peer restart")
     ap.add_argument("--recovery-first-seq",type=int,default=0,
