@@ -835,7 +835,11 @@ private:
         if (QUIC_FAILED(
                 api_->StreamStart(
                     handle,
+#if defined(CITOQ_QUIC_PRIORITY_WORK) && CITOQ_QUIC_PRIORITY_WORK
+                    QUIC_STREAM_START_FLAG_PRIORITY_WORK))) {
+#else
                     QUIC_STREAM_START_FLAG_NONE))) {
+#endif
             api_->StreamClose(
                 handle);
             stream->handle =
@@ -892,7 +896,12 @@ private:
                     stream->handle,
                     &send->buffer,
                     1,
+#if defined(CITOQ_QUIC_PRIORITY_WORK) && CITOQ_QUIC_PRIORITY_WORK
+                    static_cast<QUIC_SEND_FLAGS>(
+                        QUIC_SEND_FLAG_FIN | QUIC_SEND_FLAG_PRIORITY_WORK),
+#else
                     QUIC_SEND_FLAG_FIN,
+#endif
                     send))) {
             outstanding_sends_
                 .fetch_sub(
