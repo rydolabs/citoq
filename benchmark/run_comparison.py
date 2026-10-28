@@ -38,6 +38,10 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mod
     ns=NS[0] if role=="sender" else NS[1]
     library_dir=pathlib.Path(os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark"))).resolve()
     env={"PYTHONPATH":str(ROOT/"python"),"CITOQ_LIBRARY":str(library_dir/"libcitoq.so"),"CITOQ_NATIVE_LIBRARY":str(library_dir/"libcitoq_native.so")}
+    if engine=="zenoh" and os.environ.get("ZENOH_BENCH_ROGUE_CLIENT_CERT"):
+        # Only the untrusted-client negative control enables verbose TLS
+        # diagnostics, not the latency comparison's normal benchmark.
+        env["RUST_LOG"]="debug"
     if engine=="zenoh" and role=="sender":
         for key in ("ZENOH_BENCH_ROGUE_CLIENT_CERT","ZENOH_BENCH_ROGUE_CLIENT_KEY"):
             value=os.environ.get(key)
