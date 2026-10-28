@@ -31,6 +31,8 @@ struct DiscoveryControlStats {
     std::size_t stale_packets{0};
     std::size_t restarts{0};
     std::size_t expired_coordinators{0};
+    std::size_t snapshot_retries{0};
+    std::size_t route_retries{0};
 };
 
 class DiscoveryControlCore {
@@ -39,6 +41,7 @@ private:
         DemandSummaryStamp stamp{};
         std::vector<InterestKey> keys;
         std::uint32_t next_offset{};
+        std::uint64_t next_retry_ms{};
     };
 
     using RequestedRoutes =
@@ -99,11 +102,17 @@ public:
                 message.coordinator);
             requested_routes_.erase(
                 message.coordinator);
+            unconfirmed_routes_.erase(message.coordinator);
+            next_route_retry_ms_.erase(message.coordinator);
         }
 
         if (!host_.needs_remote_snapshot(
                 message.coordinator,
                 message.stamp)) {
+#if !defined(CITOQ_DISCOVERY_RETRY) || CITOQ_DISCOVERY_RETRY
+            retry_unconfirmed_routes(message.coordinator,
+                message.stamp.incarnation, now_ms, actions);
+#endif
             return actions;
         }
 
@@ -115,6 +124,18 @@ public:
             pending_it != pending_.end() &&
             pending_it->second.stamp ==
                 message.stamp) {
+#if !defined(CITOQ_DISCOVERY_RETRY) || CITOQ_DISCOVERY_RETRY
+            // Repeated announcements prove the coordinator is alive, but do
+            // not prove its earlier UDP snapshot reply was received.
+            // Retry from the last verified page, never replay applied pages.
+            if (now_ms >= pending_it->second.next_retry_ms) {
+                pending_it->second.next_retry_ms = now_ms + 300;
+                ++stats_.snapshot_retries;
+                actions.push_back(snapshot_request_action(
+                    message.coordinator, message.stamp,
+                    pending_it->second.next_offset));
+            }
+#endif
             return actions;
         }
 
@@ -123,7 +144,8 @@ public:
             PendingSnapshot{
                 message.stamp,
                 {},
-                0});
+                0,
+                now_ms + 300});
 
         actions.push_back(
             snapshot_request_action(
@@ -227,6 +249,9 @@ public:
             return false;
         }
 
+        for (auto& [coordinator, pending] : unconfirmed_routes_) {
+            pending.erase(key);
+        }
         for (auto requested_it =
                  requested_routes_.begin();
              requested_it !=
@@ -265,6 +290,10 @@ public:
                 none);
             requested.erase(
                 request_it);
+            if (auto pending = unconfirmed_routes_.find(coordinator);
+                pending != unconfirmed_routes_.end()) {
+                pending->second.erase(key);
+            }
 
             if (requested.empty()) {
                 requested_it =
@@ -385,6 +414,14 @@ public:
             batch.coordinator][
                 batch.key] =
             batch.incarnation;
+        if (auto it = unconfirmed_routes_.find(batch.coordinator);
+            it != unconfirmed_routes_.end()) {
+            it->second.erase(batch.key);
+            if (it->second.empty()) {
+                unconfirmed_routes_.erase(it);
+                next_route_retry_ms_.erase(batch.coordinator);
+            }
+        }
 
         return true;
     }
@@ -403,6 +440,8 @@ public:
                 coordinator);
             requested_routes_.erase(
                 coordinator);
+            unconfirmed_routes_.erase(coordinator);
+            next_route_retry_ms_.erase(coordinator);
         }
 
         stats_.expired_coordinators +=
@@ -433,6 +472,34 @@ public:
     }
 
 private:
+    void retry_unconfirmed_routes(
+        CoordinatorId coordinator,
+        std::uint64_t incarnation,
+        std::uint64_t now_ms,
+        std::vector<ControlAction>& actions) {
+        const auto pending = unconfirmed_routes_.find(coordinator);
+        if (pending == unconfirmed_routes_.end() || pending->second.empty())
+            return;
+        auto& next_retry = next_route_retry_ms_[coordinator];
+        if (next_retry != 0 && now_ms < next_retry) return;
+        next_retry = now_ms + 300;
+        for (const auto& key : pending->second) {
+            if (!desired_routes_.contains(key) ||
+                !host_.candidate_hosts(key).contains(coordinator))
+                continue;
+            const auto request_it = requested_routes_.find(coordinator);
+            if (request_it == requested_routes_.end())
+                continue;
+            const auto requested = request_it->second.find(key);
+            if (requested == request_it->second.end() ||
+                requested->second != incarnation)
+                continue;
+            ++stats_.route_retries;
+            actions.push_back(route_request_action(
+                coordinator, incarnation, key));
+        }
+    }
+
     ControlAction snapshot_request_action(
         CoordinatorId coordinator,
         const DemandSummaryStamp& stamp,
@@ -498,6 +565,7 @@ private:
 
             requested[key] =
                 *incarnation;
+            unconfirmed_routes_[coordinator].insert(key);
 
             actions.push_back(
                 route_request_action(
@@ -543,6 +611,10 @@ private:
                 it->first,
                 none);
 
+            if (auto pending = unconfirmed_routes_.find(coordinator);
+                pending != unconfirmed_routes_.end()) {
+                pending->second.erase(it->first);
+            }
             it =
                 requested.erase(it);
         }
@@ -570,6 +642,7 @@ private:
 
             requested[key] =
                 incarnation;
+            unconfirmed_routes_[coordinator].insert(key);
 
             actions.push_back(
                 route_request_action(
@@ -600,6 +673,13 @@ private:
     std::unordered_set<
         InterestKey,
         InterestKeyHash> desired_routes_;
+
+    // Route request registration is not a delivery acknowledgement. Keep a
+    // separate pending set until a validated CTR4/CTR5 batch arrives.
+    std::unordered_map<
+        CoordinatorId,
+        std::unordered_set<InterestKey, InterestKeyHash>> unconfirmed_routes_;
+    std::unordered_map<CoordinatorId, std::uint64_t> next_route_retry_ms_;
 
     DiscoveryControlStats stats_;
 };
