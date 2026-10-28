@@ -275,9 +275,11 @@ def paced_send(args, fn, service=None, wait_for_match=False):
     # "legacy" intentionally retains the old clock origin for controlled A/B.
     # It dates the first tick BEFORE CitoQ's initial wait-for-match, so after
     # discovery it may flush many overdue ticks in a microburst.
-    pacing_mode = getattr(args, "pacing_mode", "legacy")
+    pacing_mode = getattr(args, "pacing_mode", "rebase")
     trace = getattr(args, "pacing_trace", False)
     next_ns = now_ns()
+    pacing_started_ns = next_ns
+    first_accept_wait_ms = None
     interval = int(1e9 / args.rate)
     sent_at = [] if trace else None
     for n in range(1, args.count+1):
@@ -291,6 +293,8 @@ def paced_send(args, fn, service=None, wait_for_match=False):
                 timestamp_ns = STRUCT.unpack_from(payload)[1] if (trace or pacing_mode == "rebase") else None
                 if sent_at is not None:
                     sent_at.append(timestamp_ns)
+                if n == 1 and trace:
+                    first_accept_wait_ms = round((now_ns()-pacing_started_ns)/1e6,6)
                 # publish_raw() queues a QUIC send on the loop owner. Without
                 # this poll the queued packet sits until the *next* publish.
                 if service and args.citoq_poll_mode == "immediate":
@@ -324,6 +328,7 @@ def paced_send(args, fn, service=None, wait_for_match=False):
         span = sent_at[-1] - sent_at[0] if len(sent_at)>1 else 0
         print("PACING_REPORT="+json.dumps({
             "mode": pacing_mode, "count": len(sent_at), "offered_hz": args.rate,
+            "first_accept_wait_ms": first_accept_wait_ms,
             "observed_hz": round((len(sent_at)-1)*1e9/span,2) if span>0 else None,
             "short_gap_count": sum(gap < interval//2 for gap in intervals),
             "min_gap_ms": round(ordered[0]/1e6,6) if ordered else None,
@@ -352,7 +357,7 @@ def main():
     ap.add_argument("--zenoh-transport",choices=("tcp","quic-mtls"),default="tcp",
                     help="quic-mtls restricts links to QUIC with CA trust and client certificate authentication")
     ap.add_argument("--pacing-mode", choices=("legacy","rebase"),
-                    default=os.environ.get("CITOQ_BENCH_PACING_MODE","legacy"),
+                    default=os.environ.get("CITOQ_BENCH_PACING_MODE","rebase"),
                     help="rebase starts pacing after first accepted publish and skips overdue ticks; legacy keeps historical schedule")
     ap.add_argument("--pacing-trace", action="store_true",
                     default=os.environ.get("CITOQ_BENCH_PACING_TRACE")=="1",
