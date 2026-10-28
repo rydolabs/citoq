@@ -95,6 +95,7 @@ jobs:
               else
                 unset CITOQ_BENCH_PACING_MODE || true
               fi
+              status=0
               CITOQ_BENCH_PACING_TRACE=1 CITOQ_BENCH_RESOURCES=1 \
                 python3 benchmark/run_comparison.py \
                 --python "$GITHUB_WORKSPACE/.venv/bin/python" \
@@ -102,7 +103,12 @@ jobs:
                 --payload 256 --profiles "$profile" \
                 --citoq-poll-mode immediate --citoq-rx-mode event \
                 --zenoh-transport quic-mtls \
-                --output-dir "pacing-100hz-loss-evidence/$scenario/$cohort"
+                --output-dir "pacing-100hz-loss-evidence/$scenario/$cohort" || status=$?
+              if [[ "$status" != 0 ]]; then
+                echo "::warning::$scenario/$cohort returned $status; continuing remaining cohorts, strict analyzer will still fail"
+                find "pacing-100hz-loss-evidence/$scenario/$cohort" \
+                  -maxdepth 1 -name '*.log' -print -exec tail -n 20 {} \;
+              fi
               echo "::endgroup::"
             done
           done
