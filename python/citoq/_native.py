@@ -47,6 +47,31 @@ _REQUEST_DEADLINE_EXCEEDED = 4
 _REQUEST_INTERNAL = 5
 
 
+
+# Opt-in diagnostic only: collect C ABI -> Python handler stage timings.
+# The measured ctypes bridge excludes native MsQuic/queue time.
+import os as _stage_os
+if _stage_os.environ.get("CITOQ_BENCH_CALLBACK_STAGE") == "1":
+    import atexit as _stage_atexit
+    import json as _stage_json
+    import time as _stage_time
+    _stage_values = {"copy_ns": [], "handler_ns": [], "bridge_ns": []}
+    def _stage_emit():
+        def _quantile(values, frac):
+            if not values:
+                return None
+            sorted_values = sorted(values)
+            return sorted_values[min(len(sorted_values)-1, round((len(sorted_values)-1)*frac))]
+        print("CITOQ_PY_CALLBACK_STAGE=" + _stage_json.dumps({
+            key: {"count": len(values), "p50_ns": _quantile(values,.5),
+                  "p95_ns": _quantile(values,.95),
+                  "p99_ns": _quantile(values,.99)}
+            for key, values in _stage_values.items()
+        },sort_keys=True),flush=True)
+    _stage_atexit.register(_stage_emit)
+else:
+    _stage_values = None
+
 def _load() -> ctypes.CDLL:
     explicit = os.environ.get(
         "CITOQ_LIBRARY")
@@ -465,10 +490,20 @@ class Context:
             payload: _U8P,
             payload_size: int,
         ) -> None:
-            handler(
-                ctypes.string_at(
-                    payload,
-                    payload_size))
+            if _stage_values is None:
+                handler(
+                    ctypes.string_at(
+                        payload,
+                        payload_size))
+            else:
+                start = _stage_time.perf_counter_ns()
+                copied = ctypes.string_at(payload, payload_size)
+                after_copy = _stage_time.perf_counter_ns()
+                handler(copied)
+                end = _stage_time.perf_counter_ns()
+                _stage_values["copy_ns"].append(after_copy - start)
+                _stage_values["handler_ns"].append(end - after_copy)
+                _stage_values["bridge_ns"].append(end - start)
 
         callback = _CALLBACK(bridge)
         subscription = ctypes.c_void_p()
