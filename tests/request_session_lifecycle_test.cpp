@@ -162,7 +162,8 @@ int main() {
     assert(actions.size() == 1);
     assert(actions[0].kind == RequestSessionActionKind::Connect);
     assert(actions[0].destination == 77);
-    assert(actions[0].endpoint == UdpEndpoint{0x0a000002u, 4433});
+    const UdpEndpoint expected_reconnect{0x0a000002u, 4433};
+    assert(actions[0].endpoint == expected_reconnect);
     assert(sessions.mark_connected(77, actions[0].endpoint));
     assert(sessions.is_connected(77));
 
