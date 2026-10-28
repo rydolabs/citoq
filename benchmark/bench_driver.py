@@ -272,27 +272,70 @@ def cyclone_run(args, collector):
 
 
 def paced_send(args, fn, service=None, wait_for_match=False):
-    next_ns=now_ns()
-    interval=int(1e9/args.rate)
-    for n in range(1,args.count+1):
-        deadline=time.monotonic()+args.timeout
+    # "legacy" intentionally retains the old clock origin for controlled A/B.
+    # It dates the first tick BEFORE CitoQ's initial wait-for-match, so after
+    # discovery it may flush many overdue ticks in a microburst.
+    pacing_mode = getattr(args, "pacing_mode", "rebase")
+    trace = getattr(args, "pacing_trace", False)
+    next_ns = now_ns()
+    pacing_started_ns = next_ns
+    first_accept_wait_ms = None
+    interval = int(1e9 / args.rate)
+    sent_at = [] if trace else None
+    for n in range(1, args.count+1):
+        deadline = time.monotonic()+args.timeout
         while True:
             if service:
                 service()
-            success=fn(make_payload(n,args.payload))
+            payload = make_payload(n, args.payload)
+            success = fn(payload)
             if success:
+                timestamp_ns = STRUCT.unpack_from(payload)[1] if (trace or pacing_mode == "rebase") else None
+                if sent_at is not None:
+                    sent_at.append(timestamp_ns)
+                if n == 1 and trace:
+                    first_accept_wait_ms = round((now_ns()-pacing_started_ns)/1e6,6)
                 # publish_raw() queues a QUIC send on the loop owner. Without
-                # this poll the queued packet sits until the *next* 100 Hz
-                # publish, adding a full 10 ms to the measured one-way delay.
+                # this poll the queued packet sits until the *next* publish.
                 if service and args.citoq_poll_mode == "immediate":
                     service()
+                if pacing_mode == "rebase":
+                    if n == 1:
+                        # Pacing begins only after the FIRST ACCEPTED publish;
+                        # connection discovery is not an offered-rate interval.
+                        next_ns = now_ns()
+                    else:
+                        # Maintain the absolute 1000Hz schedule across normal
+                        # ~50-100us Python/Linux wake jitter; resetting every
+                        # tick lowered actual send rate to ~924Hz in first CI.
+                        # Only skip overdue ticks when we are MORE THAN ONE
+                        # interval late, avoiding multi-packet catch-up bursts.
+                        now = now_ns()
+                        if now > next_ns + interval:
+                            next_ns = now
                 break
             if not wait_for_match or time.monotonic()>deadline:
                 raise RuntimeError("no eligible subscribers for sample "+str(n))
             time.sleep(.005)
-        next_ns+=interval
-        delay=(next_ns-now_ns())/1e9
-        if delay>0: time.sleep(delay)
+        next_ns += interval
+        delay = (next_ns - now_ns())/1e9
+        if delay > 0:
+            time.sleep(delay)
+    if sent_at is not None:
+        intervals = [b-a for a,b in zip(sent_at, sent_at[1:])]
+        ordered = sorted(intervals)
+        quantile = lambda p: (ordered[min(len(ordered)-1,round((len(ordered)-1)*p))]/1e6 if ordered else None)
+        span = sent_at[-1] - sent_at[0] if len(sent_at)>1 else 0
+        print("PACING_REPORT="+json.dumps({
+            "mode": pacing_mode, "count": len(sent_at), "offered_hz": args.rate,
+            "first_accept_wait_ms": first_accept_wait_ms,
+            "observed_hz": round((len(sent_at)-1)*1e9/span,2) if span>0 else None,
+            "short_gap_count": sum(gap < interval//2 for gap in intervals),
+            "min_gap_ms": round(ordered[0]/1e6,6) if ordered else None,
+            "p50_gap_ms": quantile(.50), "p95_gap_ms": quantile(.95),
+            "max_gap_ms": round(ordered[-1]/1e6,6) if ordered else None,
+            "first_100_span_ms": round((sent_at[min(99,len(sent_at)-1)]-sent_at[0])/1e6,4),
+        }, sort_keys=True), flush=True)
     print(f"SENDER_OK engine={args.engine} sent={args.count}",flush=True)
 
 
@@ -313,6 +356,12 @@ def main():
     ap.add_argument("--timeout",type=float,default=16)
     ap.add_argument("--zenoh-transport",choices=("tcp","quic-mtls"),default="tcp",
                     help="quic-mtls restricts links to QUIC with CA trust and client certificate authentication")
+    ap.add_argument("--pacing-mode", choices=("legacy","rebase"),
+                    default=os.environ.get("CITOQ_BENCH_PACING_MODE","rebase"),
+                    help="rebase starts pacing after first accepted publish and skips overdue ticks; legacy keeps historical schedule")
+    ap.add_argument("--pacing-trace", action="store_true",
+                    default=os.environ.get("CITOQ_BENCH_PACING_TRACE")=="1",
+                    help="report observed send timestamp spacing, including catch-up microbursts")
     ap.add_argument("--citoq-poll-mode",choices=("immediate","legacy"),default="immediate",
                     help="immediate services queued QUIC send after publish; legacy reproduces the 10ms benchmark bug")
     ap.add_argument("--citoq-rx-sleep-us",type=int,default=500,
