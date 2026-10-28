@@ -26,11 +26,24 @@ def setup():
     cmd("sudo","ip","netns","exec",NS[0],"ping","-c","3","-W","2","10.217.0.2")
     (OUT/"bridge.txt").write_text(cmd("ip","-d","link","show","citoq-br").stdout)
 def set_profile(profile):
+    profiles={"baseline":None,"netem_10ms_1pct":"1%","netem_10ms_2pct":"2%"}
+    if profile not in profiles:
+        raise ValueError("unsupported benchmark network profile: "+profile)
     for ns in NS:
         cmd("sudo","ip","netns","exec",ns,"tc","qdisc","del","dev","eth0","root",check=False)
-        if profile=="netem_10ms_1pct":
-            cmd("sudo","ip","netns","exec",ns,"tc","qdisc","add","dev","eth0","root","netem","delay","10ms","2ms","loss","1%")
-        (OUT/f"qdisc-{profile}-{ns}.txt").write_text(cmd("sudo","ip","netns","exec",ns,"tc","-s","qdisc","show","dev","eth0").stdout)
+        loss=profiles[profile]
+        if loss:
+            cmd("sudo","ip","netns","exec",ns,"tc","qdisc","add","dev","eth0","root",
+                "netem","delay","10ms","2ms","loss",loss)
+        observed=cmd("sudo","ip","netns","exec",ns,"tc","-s","qdisc","show","dev","eth0").stdout
+        (OUT/f"qdisc-{profile}-{ns}.txt").write_text(observed)
+        import re
+        # Fail closed: a mislabeled 2% test without netem is NOT a reliability pass.
+        if loss and not ("qdisc netem" in observed and re.search(
+                r"\bloss\s+"+re.escape(loss[:-1])+r"(?:\.0+)?%",observed)):
+            raise RuntimeError(f"tc did not apply {profile} inside {ns}: {observed}")
+        if not loss and "qdisc netem" in observed:
+            raise RuntimeError(f"unexpected netem on baseline profile in {ns}")
 def bytes_total():
     return {f"{name}_{direction}":int(pathlib.Path(f"/sys/class/net/{name}/statistics/{direction}_bytes").read_text())
             for name in ("citoq-pa","citoq-pb") for direction in ("rx","tx")}
