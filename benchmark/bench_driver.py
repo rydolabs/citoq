@@ -347,9 +347,11 @@ def main():
     ap.add_argument("--timeout",type=float,default=16)
     ap.add_argument("--zenoh-transport",choices=("tcp","quic-mtls"),default="tcp",
                     help="quic-mtls restricts links to QUIC with CA trust and client certificate authentication")
-    ap.add_argument("--pacing-mode", choices=("legacy","rebase"), default="legacy",
+    ap.add_argument("--pacing-mode", choices=("legacy","rebase"),
+                    default=os.environ.get("CITOQ_BENCH_PACING_MODE","legacy"),
                     help="rebase starts pacing after first accepted publish and skips overdue ticks; legacy keeps historical schedule")
     ap.add_argument("--pacing-trace", action="store_true",
+                    default=os.environ.get("CITOQ_BENCH_PACING_TRACE")=="1",
                     help="report observed send timestamp spacing, including catch-up microbursts")
     ap.add_argument("--citoq-poll-mode",choices=("immediate","legacy"),default="immediate",
                     help="immediate services queued QUIC send after publish; legacy reproduces the 10ms benchmark bug")
