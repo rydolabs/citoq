@@ -1305,9 +1305,22 @@ private:
         {
             std::lock_guard<std::mutex>
                 lock(queue_mutex_);
+#if defined(CITOQ_QUIC_WAKE_COALESCE) && CITOQ_QUIC_WAKE_COALESCE
+            // The single owner drains the queue until empty. A wake-up is
+            // required only for an empty -> nonempty transition. Enqueues
+            // while the queue is nonempty are observed by the same drain.
+            // This also avoids a pipe write per MsQuic callback in a burst.
+            const bool newly_nonempty = events_.empty();
+#endif
             events_.push_back(
                 std::move(event));
+#if defined(CITOQ_QUIC_WAKE_COALESCE) && CITOQ_QUIC_WAKE_COALESCE
+            if (newly_nonempty) {
+                wake = wake_;
+            }
+#else
             wake = wake_;
+#endif
         }
 
         if (wake) {
