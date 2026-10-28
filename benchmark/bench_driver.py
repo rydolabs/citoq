@@ -301,10 +301,14 @@ def paced_send(args, fn, service=None, wait_for_match=False):
                         # connection discovery is not an offered-rate interval.
                         next_ns = now_ns()
                     else:
-                        # Never replay missed ticks as a catch-up burst.
-                        # Bound the next tick by this successful publish's
-                        # actual timestamp, preserving inter-message pacing.
-                        next_ns = max(next_ns, timestamp_ns)
+                        # Maintain the absolute 1000Hz schedule across normal
+                        # ~50-100us Python/Linux wake jitter; resetting every
+                        # tick lowered actual send rate to ~924Hz in first CI.
+                        # Only skip overdue ticks when we are MORE THAN ONE
+                        # interval late, avoiding multi-packet catch-up bursts.
+                        now = now_ns()
+                        if now > next_ns + interval:
+                            next_ns = now
                 break
             if not wait_for_match or time.monotonic()>deadline:
                 raise RuntimeError("no eligible subscribers for sample "+str(n))
