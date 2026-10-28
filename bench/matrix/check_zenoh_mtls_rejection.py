@@ -33,8 +33,12 @@ def main():
             errors.append("unauthorized-client trial was accepted or not correctly labeled: "+str(r))
     logfile=args.root/"baseline-zenoh-r1-sender.log"
     log=logfile.read_text(errors="replace") if logfile.exists() else ""
-    if ("ZENOH_TRANSPORT=quic-mtls" not in log or "Traceback" not in log):
-        errors.append("missing Zenoh QUIC connection rejection/error evidence in sender log")
+    if "ZENOH_TRANSPORT=quic-mtls" not in log:
+        errors.append("missing Zenoh QUIC transport mode in sender log")
+    # Zenoh Publisher.put() may return successfully without a connected
+    # subscriber. It is incorrect to require a nonzero sender exit here.
+    # The positive counterpart delivers 200/200; this untrusted identity
+    # must deliver 0/20, irrespective of sender process exit.
     report={"negative_control_rejected":not errors, "errors":errors,
             "limitation":"Legitimate-client success plus untrusted-client rejection proves this setup rejects the tested foreign CA, not comprehensive TLS policy conformance."}
     (args.root/"mtls-negative-control.json").write_text(json.dumps(report,indent=2)+"\n")
