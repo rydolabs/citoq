@@ -66,9 +66,26 @@ class Collector:
             if not times:
                 return None
             return times[min(len(times)-1, int(round((len(times)-1)*p)))] / 1000
+        # Diagnostic postprocessing only, outside the receive callback.
+        # Characterize start-of-burst vs sustained execution on the same
+        # accepted run for both CitoQ and Zenoh across 1000 messages.
+        def seq_window_p95(start, end):
+            values = sorted(
+                delta for seq, delta in self.seen.items()
+                if start <= seq <= end)
+            if not values:
+                return None
+            return values[min(len(values)-1, int(round((len(values)-1)*.95)))] / 1000
+
         return {
             "engine": engine,
             "expected": self.expected,
+            "latency_us_first_100_p95": seq_window_p95(1,min(100,self.expected)),
+            "latency_us_last_100_p95": seq_window_p95(max(1,self.expected-99),self.expected),
+            "latency_us_after_first_200_p95": (
+                seq_window_p95(201,self.expected)
+                if self.expected > 200 else None
+            ),
             "received_unique": len(times),
             "duplicates": self.duplicates,
             "invalid": self.invalid,
@@ -120,7 +137,12 @@ def citoq_run(args, collector):
                         time.sleep(rx_sleep)
             while time.monotonic()<until and len(collector.seen)<args.count:
                 service_receiver()
-            for _ in range(100):
+            # Match Zenoh's 80ms post-completion duplicate-observation
+            # grace period. Earlier this called poll_wait(10ms) 100 times,
+            # extending the CitoQ process lifetime by up to 1 second and
+            # skewing whole-process CPU/RSS comparisons.
+            grace_until=time.monotonic()+0.08
+            while time.monotonic()<grace_until:
                 service_receiver()
         else:
             ctx.advertise_raw(TYPE_ID, "robot_1")
@@ -140,10 +162,43 @@ def zenoh_run(args, collector):
     # Zenoh 1.10 auto-promotes >=3072-byte same-host messages to SHM.
     # Linux netns share IPC: force the actual TCP/veth path for network A/B.
     cfg.insert_json5("transport/shared_memory/enabled", "false")
-    if args.role=="receiver":
-        cfg.insert_json5("listen/endpoints", '["tcp/0.0.0.0:7447"]')
+    if args.zenoh_transport == "quic-mtls":
+        # Same native QUIC+mTLS trust roots, signed identities, payloads and
+        # veth namespaces as the CitoQ control. This is security/transport
+        # normalized, NOT identical internal QoS, stream/framing or runtime.
+        cfg.insert_json5("transport/link/protocols", '["quic"]')
+        tls = {
+            "root_ca_certificate": str(args.ca),
+            "enable_mtls": True,
+            "verify_name_on_connect": True,
+        }
+        if args.role == "receiver":
+            tls.update(listen_certificate=str(args.cert),
+                       listen_private_key=str(args.key))
+        else:
+            # Research negative control: present an otherwise valid client key
+            # pair signed by an untrusted CA; only the server should reject it.
+            # Never change the trusted server CA or disable hostname checking.
+            tls.update(
+                connect_certificate=os.environ.get(
+                    "ZENOH_BENCH_ROGUE_CLIENT_CERT",str(args.client_cert)),
+                connect_private_key=os.environ.get(
+                    "ZENOH_BENCH_ROGUE_CLIENT_KEY",str(args.client_key)))
+        cfg.insert_json5("transport/link/tls", json.dumps(tls))
+        protocol = "quic"
     else:
-        cfg.insert_json5("connect/endpoints", '["tcp/10.217.0.2:7447"]')
+        cfg.insert_json5("transport/link/protocols", '["tcp"]')
+        protocol = "tcp"
+    # Peer mode may inherit a default TCP listening endpoint. Reset both
+    # endpoint collections so our QUIC-only protocol allowlist cannot conflict
+    # with an implicit TCP listener, or accidentally permit TCP fallback.
+    cfg.insert_json5("listen/endpoints", "[]")
+    cfg.insert_json5("connect/endpoints", "[]")
+    if args.role=="receiver":
+        cfg.insert_json5("listen/endpoints", json.dumps([f"{protocol}/0.0.0.0:7447"]))
+    else:
+        cfg.insert_json5("connect/endpoints", json.dumps([f"{protocol}/10.217.0.2:7447"]))
+    print("ZENOH_TRANSPORT=" + args.zenoh_transport, flush=True)
     with zenoh.open(cfg) as session:
         if args.role=="receiver":
             def receive(sample):
@@ -256,6 +311,8 @@ def main():
     ap.add_argument("--payload",type=int,default=256)
     ap.add_argument("--rate",type=float,default=100)
     ap.add_argument("--timeout",type=float,default=16)
+    ap.add_argument("--zenoh-transport",choices=("tcp","quic-mtls"),default="tcp",
+                    help="quic-mtls restricts links to QUIC with CA trust and client certificate authentication")
     ap.add_argument("--citoq-poll-mode",choices=("immediate","legacy"),default="immediate",
                     help="immediate services queued QUIC send after publish; legacy reproduces the 10ms benchmark bug")
     ap.add_argument("--citoq-rx-sleep-us",type=int,default=500,
