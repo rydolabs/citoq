@@ -14,8 +14,9 @@ SPEC.loader.exec_module(mod)
 
 
 class VirtualClock:
-    def __init__(self):
+    def __init__(self, jitter_ns=0):
         self.ns=1_000_000_000
+        self.jitter_ns=jitter_ns
 
     def now_ns(self):
         return self.ns
@@ -25,12 +26,12 @@ class VirtualClock:
 
     def sleep(self, seconds):
         assert seconds >= 0
-        self.ns+=int(seconds*1e9)
+        self.ns+=int(seconds*1e9)+self.jitter_ns
 
 
 class PacingRebaseTest(unittest.TestCase):
-    def measure(self, mode):
-        clock=VirtualClock()
+    def measure(self, mode, jitter_ns=0, stall_on=0):
+        clock=VirtualClock(jitter_ns)
         sends=[]
         attempted=[0]
         args=types.SimpleNamespace(
@@ -45,6 +46,8 @@ class PacingRebaseTest(unittest.TestCase):
                 return 0
             seq,stamp=mod.STRUCT.unpack_from(payload)
             sends.append((seq,stamp))
+            if seq == stall_on:
+                clock.ns += 4_000_000
             return 1
         with patch.object(mod,"now_ns",side_effect=clock.now_ns), \
              patch.object(mod.time,"monotonic",side_effect=clock.monotonic), \
@@ -59,6 +62,16 @@ class PacingRebaseTest(unittest.TestCase):
 
     def test_rebase_preserves_one_millisecond_spacing(self):
         self.assertEqual(self.measure("rebase"),[1_000_000]*11)
+
+    def test_rebase_keeps_target_rate_despite_70us_sleep_jitter(self):
+        gaps = self.measure("rebase",jitter_ns=70_000)
+        self.assertGreater(11*1e9/sum(gaps),975)
+        self.assertTrue(all(gap>=850_000 for gap in gaps))
+
+    def test_rebase_skips_delayed_tick_without_catchup_burst(self):
+        gaps = self.measure("rebase",stall_on=5)
+        self.assertTrue(all(gap>=900_000 for gap in gaps))
+        self.assertGreater(max(gaps),4_000_000)
 
 
 if __name__=="__main__":
