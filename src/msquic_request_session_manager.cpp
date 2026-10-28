@@ -191,7 +191,8 @@ public:
             "server_closed=%llu transport_closed=%llu enqueued=%llu "
             "dequeued=%llu discarded=%llu stream_started=%llu send_accepted=%llu "
             "send_completed=%llu server_streams=%llu rx_events=%llu "
-            "ctd1_dispatch=%llu outstanding=%zu\n",
+            "ctd1_dispatch=%llu outstanding=%zu server_last_status=%u "
+            "server_last_error=%llu server_hs_completed=%llu\n",
             (unsigned long long)trace_[0].load(),
             (unsigned long long)trace_[1].load(),
             (unsigned long long)trace_[2].load(),
@@ -208,7 +209,10 @@ public:
             (unsigned long long)trace_[12].load(),
             (unsigned long long)trace_[13].load(),
             (unsigned long long)trace_[14].load(),
-            outstanding_sends_.load());
+            outstanding_sends_.load(),
+            trace_server_last_status_.load(),
+            (unsigned long long)trace_server_last_error_.load(),
+            (unsigned long long)trace_server_hs_complete_.load());
 #endif
 
         if (server_configuration_) {
@@ -1536,9 +1540,25 @@ private:
 #if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
             case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
                 self->trace_[6].fetch_add(1,std::memory_order_relaxed);
+                if (!state->outbound) {
+                    self->trace_server_last_status_.store(
+                        static_cast<std::uint32_t>(event->
+                            SHUTDOWN_INITIATED_BY_TRANSPORT.Status),
+                        std::memory_order_relaxed);
+                    self->trace_server_last_error_.store(
+                        event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode,
+                        std::memory_order_relaxed);
+                }
                 break;
 #endif
             case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
+#if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
+                if (!state->outbound &&
+                    event->SHUTDOWN_COMPLETE.HandshakeCompleted) {
+                    self->trace_server_hs_complete_.fetch_add(
+                        1,std::memory_order_relaxed);
+                }
+#endif
                 self->post(
                     [self,
                      state] {
@@ -1739,6 +1759,9 @@ private:
 #if defined(CITOQ_LOSS_TRACE) && CITOQ_LOSS_TRACE
     // indices 0..14 documented by the single-line CITOQ_LOSS_TRACE record.
     std::array<std::atomic<std::uint64_t>,15> trace_{};
+    std::atomic<std::uint32_t> trace_server_last_status_{0};
+    std::atomic<std::uint64_t> trace_server_last_error_{0};
+    std::atomic<std::uint64_t> trace_server_hs_complete_{0};
 #endif
 
     std::mutex queue_mutex_;
