@@ -105,7 +105,7 @@ def citoq_run(args, collector):
     server = args.role == "receiver"
     with NativeRuntime(
         coordinator=50 if server else 20,
-        incarnation=5001 if server else 2001,
+        incarnation=5001 if server else args.sender_incarnation,
         destination=77 if server else 0,
         control_port=47600 if server else 47465,
         quic_port=4465 if server else 0,
@@ -135,7 +135,12 @@ def citoq_run(args, collector):
                     transport.poll()
                     if rx_sleep:
                         time.sleep(rx_sleep)
-            while time.monotonic()<until and len(collector.seen)<args.count:
+            def receiver_done():
+                if args.recovery_first_seq:
+                    target = args.count - args.recovery_first_seq + 1
+                    return sum(seq >= args.recovery_first_seq for seq in collector.seen) >= target
+                return len(collector.seen) >= args.count
+            while time.monotonic()<until and not receiver_done():
                 service_receiver()
             # Match Zenoh's 80ms post-completion duplicate-observation
             # grace period. Earlier this called poll_wait(10ms) 100 times,
@@ -287,7 +292,7 @@ def paced_send(args, fn, service=None, wait_for_match=False):
         while True:
             if service:
                 service()
-            payload = make_payload(n, args.payload)
+            payload = make_payload(n + getattr(args, 'first_seq', 1) - 1, args.payload)
             success = fn(payload)
             if success:
                 timestamp_ns = STRUCT.unpack_from(payload)[1] if (trace or pacing_mode == "rebase") else None
@@ -354,6 +359,14 @@ def main():
     ap.add_argument("--payload",type=int,default=256)
     ap.add_argument("--rate",type=float,default=100)
     ap.add_argument("--timeout",type=float,default=16)
+    ap.add_argument("--first-seq",type=int,default=1,
+                    help="sender sequence offset for multi-process restart probes")
+    ap.add_argument("--sender-incarnation",type=int,default=2001,
+                    help="distinct sender incarnation after a forced peer restart")
+    ap.add_argument("--recovery-first-seq",type=int,default=0,
+                    help="receiver can finish after all post-restart sequence numbers arrive")
+    ap.add_argument("--emit-sequences",action="store_true",
+                    help="include received sequence IDs in post-run report, for restart probes")
     ap.add_argument("--zenoh-transport",choices=("tcp","quic-mtls"),default="tcp",
                     help="quic-mtls restricts links to QUIC with CA trust and client certificate authentication")
     ap.add_argument("--pacing-mode", choices=("legacy","rebase"),
@@ -377,6 +390,8 @@ def main():
     ap.add_argument("--client-key")
     ap.add_argument("--result")
     args=ap.parse_args()
+    if args.first_seq < 1 or args.sender_incarnation < 1 or args.recovery_first_seq < 0:
+        ap.error("first_seq and sender_incarnation must be positive")
     if (args.count<1 or args.payload<16 or args.rate<=0 or
             not 0<=args.citoq_rx_sleep_us<=1_000_000 or
             not 0<=args.citoq_rx_wait_ms<=1000):
@@ -387,6 +402,8 @@ def main():
         engine(args,collector)
         if args.role=="receiver":
             report=collector.report(args.engine)
+            if args.emit_sequences:
+                report["received_sequences"]=sorted(collector.seen)
             print("BENCH_JSON="+json.dumps(report,sort_keys=True),flush=True)
             if args.result:
                 Path(args.result).write_text(json.dumps(report,indent=2)+"\n")
