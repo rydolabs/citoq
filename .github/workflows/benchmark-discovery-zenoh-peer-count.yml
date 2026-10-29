@@ -1,0 +1,67 @@
+name: Zenoh peer gossip exact connectivity readiness A/B at 30-100 nodes
+on:
+  push:
+    branches: ['bench/discovery-zenoh-peer-count-*']
+    paths:
+      - 'bench/matrix/**'
+      - '.github/workflows/benchmark-discovery-zenoh-peer-count.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        include:
+          - { nodes: 30, profile: netem_10ms_1pct }
+          - { nodes: 50, profile: baseline }
+          - { nodes: 100, profile: baseline }
+          - { nodes: 100, profile: netem_10ms_2pct }
+    name: Zenoh peer link count N${{ matrix.nodes }} ${{ matrix.profile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin source and install tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e 08188eba73284dd1069016174ad216f5e02d2cfa^{commit}
+          git merge-base --is-ancestor 08188eba73284dd1069016174ad216f5e02d2cfa HEAD
+          mkdir -p discovery-scale-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}
+          {
+            date -u -Is
+            git rev-parse HEAD
+            uname -a
+            nproc
+            cat /proc/meminfo | head -6
+            ulimit -n
+          } > discovery-scale-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}/runner.txt
+          sudo -n true
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake openssl iproute2 iputils-ping python3-venv time
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install 'eclipse-zenoh==1.10.1' 'cyclonedds==11.0.1'
+          .venv/bin/python -c 'import zenoh,cyclonedds; print("Zenoh and CycloneDDS imports OK")'
+      - name: Strict peer-connection barrier and complete receive proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bench/matrix/three_engine_discovery_scale.py bench/matrix/discovery_competitor_node.py
+          python3 bench/matrix/three_engine_discovery_scale.py \
+            --nodes ${{ matrix.nodes }} --profile '${{ matrix.profile }}' \
+            --engine zenoh --python "$GITHUB_WORKSPACE/.venv/bin/python" \
+            --repeats 1 --count 8 --lifetime-ms 105000 \
+            --discovery-timeout-ms 90000 \
+            --output "zenoh-peer-count-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: discovery-zenoh-peer-count-n${{ matrix.nodes }}-${{ matrix.profile }}
+          path: zenoh-peer-count-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}/
+          if-no-files-found: warn
