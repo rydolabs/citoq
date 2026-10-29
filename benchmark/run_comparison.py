@@ -51,6 +51,13 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mod
     ns=NS[0] if role=="sender" else NS[1]
     library_dir=pathlib.Path(os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark"))).resolve()
     env={"PYTHONPATH":str(ROOT/"python"),"CITOQ_LIBRARY":str(library_dir/"libcitoq.so"),"CITOQ_NATIVE_LIBRARY":str(library_dir/"libcitoq_native.so")}
+    if engine=="cyclonedds":
+        # Explicit unicast peers and eth0 pin all DDSI traffic to the
+        # same veth/netem path. The stock wheel is NOT DDS Security/mTLS.
+        xml=ROOT/"benchmark/cyclonedds_netns.xml"
+        if not xml.is_file():
+            raise RuntimeError(f"missing Cyclone DDS network config {xml}")
+        env["CYCLONEDDS_URI"]=xml.resolve().as_uri()
     if engine=="zenoh" and os.environ.get("ZENOH_BENCH_ROGUE_CLIENT_CERT"):
         # Only the untrusted-client negative control enables verbose TLS
         # diagnostics, not the latency comparison's normal benchmark.
@@ -62,7 +69,8 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mod
                 env[key]=str(pathlib.Path(value).resolve())
     # Forward only explicit diagnostic settings. Normal product runs retain
     # the historical benchmark defaults for backward comparisons.
-    for name in ("CITOQ_BENCH_PACING_MODE","CITOQ_BENCH_PACING_TRACE"):
+    for name in ("CITOQ_BENCH_PACING_MODE","CITOQ_BENCH_PACING_TRACE",
+                 "CYCLONEDDS_BENCH_RX_MODE"):
         if name in os.environ:
             env[name]=os.environ[name]
     if engine=="fastdds":
@@ -144,7 +152,12 @@ def main():
     global OUT
     OUT=ROOT/a.output_dir
     OUT.mkdir(parents=True,exist_ok=True)
-    ver={"product_baseline_sha":"08188eba73284dd1069016174ad216f5e02d2cfa",
+    ver={"cyclonedds_transport":"DDSI-RTPS UDP unicast, reliable KEEP_LAST(1024), DDS Security disabled, no SHM",
+         "cyclonedds_xml":str(ROOT/"benchmark/cyclonedds_netns.xml"),
+         "cyclonedds_python_version":cmd(a.python,"-c",
+             "import importlib.metadata as m; print(m.version('cyclonedds'))",
+             check=False).stdout.strip(),
+         "product_baseline_sha":"08188eba73284dd1069016174ad216f5e02d2cfa",
          "library_dir":os.environ.get("CITOQ_BENCH_LIBRARY_DIR",str(ROOT/"build-benchmark")),
          "zenoh_transport":a.zenoh_transport,
          "harness_sha":cmd("git","rev-parse","HEAD").stdout.strip(),

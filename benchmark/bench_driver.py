@@ -233,6 +233,9 @@ def cyclone_run(args, collector):
     from cyclonedds.idl import IdlStruct
     from cyclonedds.idl.types import uint64, uint8, sequence
     from cyclonedds.qos import Qos, Policy
+    from cyclonedds.core import (
+        WaitSet, ReadCondition, SampleState, ViewState, InstanceState,
+    )
 
     @dataclass
     class BenchMsg(IdlStruct, typename="CitoQBenchmark.BenchMsg"):
@@ -247,17 +250,55 @@ def cyclone_run(args, collector):
     if args.role=="receiver":
         reader=DataReader(dp,topic,qos=qos)
         until=time.monotonic()+args.timeout
-        while time.monotonic()<until and len(collector.seen)<args.count:
-            for sample in reader.take(N=128):
-                if not isinstance(sample, BenchMsg):
-                    # DDS invalid/disposed instance event is not a received data sample.
-                    continue
-                collector.ingest(int(sample.seq),int(sample.sent_ns),len(sample.payload)+16)
-            time.sleep(.0005)
-        for sample in reader.take(N=256):
-            if not isinstance(sample, BenchMsg):
-                continue
-            collector.ingest(int(sample.seq),int(sample.sent_ns),len(sample.payload)+16)
+
+        def take_available():
+            # Drain *all* currently available samples before waiting. A
+            # ReadCondition remains ready while unread data exists.
+            while True:
+                samples=reader.take(N=128)
+                if not samples:
+                    break
+                for sample in samples:
+                    if not isinstance(sample, BenchMsg):
+                        # DDS invalid/disposed instance event is not a user payload.
+                        continue
+                    collector.ingest(int(sample.seq),int(sample.sent_ns),
+                                     len(sample.payload)+16)
+            return len(collector.seen)
+
+        if args.cyclonedds_rx_mode=="waitset":
+            # Event-driven receive matches the CitoQ native poll_wait and
+            # Zenoh callback policy more closely than a 500us sleep poll.
+            condition=ReadCondition(reader,
+                ViewState.Any | SampleState.NotRead | InstanceState.Alive)
+            waitset=WaitSet(dp)
+            waitset.attach(condition)
+            print("CYCLONEDDS_RX_MODE=waitset",flush=True)
+            while time.monotonic()<until and len(collector.seen)<args.count:
+                take_available()
+                if len(collector.seen)>=args.count:
+                    break
+                remaining=int((until-time.monotonic())*1e9)
+                if remaining>0:
+                    waitset.wait(min(remaining,10_000_000))
+            # A matching 80ms post-completion grace permits late duplicate
+            # detection, as in the CitoQ and Zenoh comparison.
+            grace=time.monotonic()+.08
+            while time.monotonic()<grace:
+                take_available()
+                remaining=int((grace-time.monotonic())*1e9)
+                if remaining>0:
+                    waitset.wait(min(remaining,10_000_000))
+        else:
+            # Historical fixed poll diagnostic, retained for source-matched A/B.
+            print("CYCLONEDDS_RX_MODE=sleep",flush=True)
+            while time.monotonic()<until and len(collector.seen)<args.count:
+                take_available()
+                time.sleep(.0005)
+            grace=time.monotonic()+.08
+            while time.monotonic()<grace:
+                take_available()
+                time.sleep(.0005)
     else:
         writer=DataWriter(dp,topic,qos=qos)
         # Reliable DDS late-join safety: do not write historical samples
@@ -402,6 +443,9 @@ def main():
                     help="immediate services queued QUIC send after publish; legacy reproduces the 10ms benchmark bug")
     ap.add_argument("--citoq-rx-sleep-us",type=int,default=500,
                     help="receiver poll-loop sleep in microseconds; 0 means busy polling (diagnostic only)")
+    ap.add_argument("--cyclonedds-rx-mode",choices=("waitset","sleep"),
+                    default=os.environ.get("CYCLONEDDS_BENCH_RX_MODE","waitset"),
+                    help="waitset native read-condition event receive (default), sleep retains old 500us polling")
     ap.add_argument("--citoq-rx-mode",choices=("sleep","event"),default="sleep",
                     help="event uses kernel wakeup + owner-thread poll_wait without busy spin")
     ap.add_argument("--citoq-rx-wait-ms",type=int,default=10,
