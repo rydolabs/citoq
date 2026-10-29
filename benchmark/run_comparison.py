@@ -69,7 +69,8 @@ def launch(engine,role,py,count,payload,rate,result,poll_mode,rx_sleep_us,rx_mod
                 env[key]=str(pathlib.Path(value).resolve())
     # Forward only explicit diagnostic settings. Normal product runs retain
     # the historical benchmark defaults for backward comparisons.
-    for name in ("CITOQ_BENCH_PACING_MODE","CITOQ_BENCH_PACING_TRACE"):
+    for name in ("CITOQ_BENCH_PACING_MODE","CITOQ_BENCH_PACING_TRACE",
+                 "CYCLONEDDS_BENCH_RX_MODE"):
         if name in os.environ:
             env[name]=os.environ[name]
     if engine=="fastdds":
