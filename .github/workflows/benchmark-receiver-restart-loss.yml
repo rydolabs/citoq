@@ -1,8 +1,8 @@
-name: CitoQ receiver Coordinator crash restart and QUIC recovery
+name: CitoQ receiver crash with verified kill baseline control
 on:
   push:
     branches:
-      - 'test/receiver-restart-quic-*'
+      - 'test/receiver-real-kill-control-*'
     paths:
       - 'benchmark/**'
       - 'benchmark/restart_receiver_probe.py'
@@ -90,6 +90,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: citoq-loss-forensics-${{ matrix.profile }}
-          path: loss-forensics-evidence/${{ matrix.profile }}/
+          name: receiver-real-kill-control-${{ matrix.profile }}
+          path: receiver-restart-evidence/${{ matrix.profile }}/
           if-no-files-found: warn
