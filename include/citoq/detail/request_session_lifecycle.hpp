@@ -38,6 +38,7 @@ private:
         UdpEndpoint endpoint{};
         State state{
             State::Connecting};
+        std::uint64_t route_generation{};
     };
 
 public:
@@ -166,7 +167,9 @@ public:
                 desired !=
                     desired_endpoints.end() &&
                 desired->second ==
-                    it->second.endpoint) {
+                    it->second.endpoint &&
+                it->second.route_generation ==
+                    routes_.quic_route_generation(it->first)) {
                 ++it;
                 continue;
             }
@@ -193,7 +196,8 @@ public:
                 destination,
                 Tracked{
                     endpoint,
-                    State::Connecting});
+                    State::Connecting,
+                    routes_.quic_route_generation(destination)});
 
             actions.push_back(
                 RequestSessionAction{
