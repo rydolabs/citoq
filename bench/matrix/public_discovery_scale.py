@@ -71,7 +71,7 @@ def count_markers(log):
 
 
 def launch(index, role, nodes, count, lifetime_ms, discovery_ms,
-           output, files, processes):
+           warmup_ms, output, files, processes):
     ns = f"m26-{index:03d}"
     log = output / f"node-{index:03d}-{role}.log"
     stream = log.open("w")
@@ -89,6 +89,7 @@ def launch(index, role, nodes, count, lifetime_ms, discovery_ms,
         role, "--index", str(index), "--nodes", str(nodes),
         "--count", str(count), "--lifetime-ms", str(lifetime_ms),
         "--discovery-timeout-ms", str(discovery_ms),
+        "--warmup-ms", str(warmup_ms),
         "--completion-file", str((output / "publisher-finished.marker").resolve()),
         "--ca", str(certs / "ca.pem"),
         "--server-cert", str(certs / "server.pem"),
@@ -108,7 +109,7 @@ def parse_node(log):
     return json.loads(found[-1]) if len(found) == 1 else {}
 
 
-def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery_ms):
+def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery_ms, warmup_ms):
     folder = root / f"n{nodes}-{profile}-r{repetition}"
     folder.mkdir(parents=True, exist_ok=True)
     files = []
@@ -119,6 +120,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         "nodes": nodes, "profile": profile, "repetition": repetition,
         "positive_subscribers": nodes-2, "negative_subscribers": 1,
         "messages_per_positive_subscriber": count,
+        "post_route_warmup_ms": warmup_ms,
         "topology": "one publisher; N-2 subscribers; one negative-interest node",
         "runner": "Linux netns + veth + Linux Bridge",
         "accepted": False,
@@ -132,7 +134,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         for index in range(1, nodes):
             role = "negative" if index == nodes-1 else "subscriber"
             receiver_logs.append(launch(index, role, nodes, count,
-                                        lifetime_ms, discovery_ms,
+                                        lifetime_ms, discovery_ms, warmup_ms,
                                         folder, files, processes))
             time.sleep(0.01)
         # Receiver-READY is a process/application-start marker, not proven
@@ -150,7 +152,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         network_ready = net.interface_stats(nodes)
         publisher_start_ns = time.monotonic_ns()
         sender_log = launch(0, "publisher", nodes, count, lifetime_ms,
-                            discovery_ms, folder, files, processes)
+                            discovery_ms, warmup_ms, folder, files, processes)
         ready_detected = False
         first_detected = False
         overall_deadline = time.monotonic() + min(
@@ -239,6 +241,30 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
             except subprocess.TimeoutExpired:
                 p.kill()
                 p.wait()
+        # Preserve per-node evidence even if a single receiver hangs until
+        # timeout and the main success-path never reaches its parsing block.
+        if not reports:
+            for index in range(nodes):
+                role = ("publisher" if index == 0 else
+                        "negative" if index == nodes-1 else "subscriber")
+                log = folder / f"node-{index:03d}-{role}.log"
+                output_text = count_markers(log)
+                reports.append({
+                    **parse_node(log), "role": role, "index": index,
+                    "exit": processes[index].returncode
+                    if index in processes else None,
+                    "ready_marker": "RECEIVER_READY" in output_text,
+                    "first_data_marker": "BENCH_FIRST_DATA" in output_text,
+                    "reported": "NODE_RESULT=" in output_text,
+                })
+            metrics["partial_received"] = sum(
+                r.get("received", 0) for r in reports
+                if r["role"] == "subscriber")
+            metrics["missing_node_results"] = [
+                r["index"] for r in reports if not r["reported"]]
+            metrics["subscriber_no_first_data"] = [
+                r["index"] for r in reports
+                if r["role"] == "subscriber" and not r["first_data_marker"]]
         for fp in files:
             fp.close()
         try:
@@ -265,6 +291,7 @@ def main():
     parser.add_argument("--count", type=int, default=8)
     parser.add_argument("--lifetime-ms", type=int, default=105000)
     parser.add_argument("--discovery-timeout-ms", type=int, default=90000)
+    parser.add_argument("--warmup-ms", type=int, default=500)
     parser.add_argument("--output", type=pathlib.Path, required=True)
     args = parser.parse_args()
     if not (3 <= args.nodes <= LIMIT and 1 <= args.repeats <= 3 and
@@ -276,7 +303,7 @@ def main():
     for rep in range(1,args.repeats+1):
         trials.append(single_trial(args.nodes, args.profile, rep, args.count,
                                    args.output, args.lifetime_ms,
-                                   args.discovery_timeout_ms))
+                                   args.discovery_timeout_ms, args.warmup_ms))
     failures = [r for r in trials if not r.get("accepted")]
     summary = {
         "nodes": args.nodes, "profile": args.profile,

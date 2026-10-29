@@ -15,6 +15,7 @@ def main():
  p.add_argument("--count",type=int,default=8)
  p.add_argument("--lifetime-ms",type=int,default=16000)
  p.add_argument("--discovery-timeout-ms",type=int,default=27000)
+ p.add_argument("--warmup-ms",type=int,default=500)
  p.add_argument("--completion-file")
  p.add_argument("--ca",required=True)
  p.add_argument("--server-cert",required=True)
@@ -100,8 +101,8 @@ def main():
    time.sleep(.025)
   ready_ms=(now()-t0)/1e6 if matched==target else None
   if ready_ms is not None:
-   print(f"PUBLIC_DISCOVERY_READY elapsed_ms={ready_ms:.3f}",flush=True)
-   warm_until=time.monotonic()+0.5
+   print(f"PUBLIC_DISCOVERY_READY elapsed_ms={ready_ms:.3f} warmup_ms={a.warmup_ms}",flush=True)
+   warm_until=time.monotonic()+a.warmup_ms/1000
    while time.monotonic()<warm_until:
     transport.poll()
     time.sleep(.0005)
