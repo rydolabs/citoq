@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain Id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface name="eth0"/>
+      </Interfaces>
+      <!-- Force all discovery and user data through the veth/netem path.
+           Without this, the two namespaces may not discover one another. -->
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <!-- Each netns has exactly one domain participant. The same index is
+           safe because participants bind to distinct IP network namespaces. -->
+      <ParticipantIndex>0</ParticipantIndex>
+      <Peers>
+        <Peer Address="10.217.0.1"/>
+        <Peer Address="10.217.0.2"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
