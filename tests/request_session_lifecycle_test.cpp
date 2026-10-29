@@ -228,14 +228,62 @@ int main() {
             77,
             actions[0].endpoint));
 
+    // Regression: receiver/Coordinator is SIGKILLed and returns with a NEW
+    // incarnation but the SAME coordinator/destination/IP/QUIC port.
+    // The original authenticated HQUIC connection belongs to the dead
+    // process, regardless of endpoint equality.
+    HostRuntimeCore restarted_provider;
+    assert(restarted_provider.register_app(
+        1, [](auto, auto, auto) { return std::size_t{0}; }));
+    restarted_provider.add_interest(1, capability);
+    UdpRuntimeAdapter restarted_udp(restarted_provider, 10, 1002);
+    restarted_udp.set_local_route_endpoints(provider_endpoint);
+    const auto old_generation = requester_udp.quic_route_generation(77);
+
+    sends = requester_udp.process_control(
+        restarted_udp.announcement(47010, 500), provider_source, 1020);
+    assert(sends.size() == 1);
+    assert(requester_udp.quic_route_generation(77) > old_generation);
+    replies = restarted_udp.process_control(
+        sends[0].bytes, requester_source, 1020);
+    assert(replies.size() == 1);
+    sends = requester_udp.process_control(
+        replies[0].bytes, provider_source, 1020);
+    assert(sends.size() == 1);
+    replies = restarted_udp.process_control(
+        sends[0].bytes, requester_source, 1020);
+    assert(replies.size() == 1);
+    (void)requester_udp.process_control(
+        replies[0].bytes, provider_source, 1020);
+
+    // Both IP and port are unchanged, but the old session must disconnect.
+    assert(requester_udp.quic_endpoint(77)->port == 4444);
+    actions = sessions.reconcile();
+    assert(actions.size() == 2);
+    assert(actions[0].kind == RequestSessionActionKind::Disconnect);
+    assert(actions[0].destination == 77);
+    assert(actions[0].endpoint.port == 4444);
+    assert(actions[1].kind == RequestSessionActionKind::Connect);
+    assert(actions[1].destination == 77);
+    assert(actions[1].endpoint.port == 4444);
+    assert(sessions.mark_connected(77, actions[1].endpoint));
+    assert(sessions.reconcile().empty());
+
+    // Delayed packets from the previous Coordinator incarnation cannot
+    // invalidate the replacement or revive the dead route.
+    (void)requester_udp.process_control(
+        provider_udp.announcement(47010, 500), provider_source, 1030);
+    assert(requester.coordinator_incarnation(10).value() == 1002);
+    assert(sessions.reconcile().empty());
+
     // Handler withdrawal removes the route endpoint and disconnects session.
-    provider.remove_interest(
+    restarted_provider.remove_interest(
         1,
         capability);
 
     sends =
         requester_udp.process_control(
-            provider_udp.announcement(
+            restarted_udp.announcement(
                 47010,
                 500),
             provider_source,
@@ -243,7 +291,7 @@ int main() {
     assert(sends.size() == 1);
 
     replies =
-        provider_udp.process_control(
+        restarted_udp.process_control(
             sends[0].bytes,
             requester_source,
             1100);
