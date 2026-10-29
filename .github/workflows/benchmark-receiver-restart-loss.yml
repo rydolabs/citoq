@@ -2,11 +2,13 @@ name: CitoQ receiver Coordinator crash restart and QUIC recovery
 on:
   push:
     branches:
-      - 'test/receiver-restart-quic-*'
+      - 'fix/receiver-incarnation-session-*'
     paths:
       - 'benchmark/**'
       - 'benchmark/restart_receiver_probe.py'
       - 'src/msquic_request_session_manager.cpp'
+      - 'include/citoq/detail/request_session_lifecycle.hpp'
+      - 'include/citoq/detail/udp_runtime_adapter.hpp'
       - 'include/citoq/native_runtime_c.h'
       - 'src/linux_request_runtime_driver.cpp'
       - 'src/native_runtime_c.cpp'
@@ -90,6 +92,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: citoq-loss-forensics-${{ matrix.profile }}
-          path: loss-forensics-evidence/${{ matrix.profile }}/
+          name: citoq-receiver-restart-${{ matrix.profile }}
+          path: receiver-restart-evidence/${{ matrix.profile }}/
           if-no-files-found: warn
