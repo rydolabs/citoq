@@ -57,6 +57,31 @@ def terminate(p):
         try:p.wait(timeout=4)
         except subprocess.TimeoutExpired:p.kill();p.wait()
 
+def namespace_pids(namespace):
+    """Read the PIDs actually running inside a dedicated Linux netns.
+
+    SIGKILLing the Popen sudo process group is NOT sufficient: sudo can
+    detach the real 'ip netns exec ... python' child from that group.
+    """
+    result=net.cmd("sudo","ip","netns","pids",namespace,check=False)
+    if result.returncode:
+        raise RuntimeError(f"cannot inspect {namespace} PIDs: {result.stderr}")
+    return [int(x) for x in result.stdout.split() if x.isdigit()]
+
+
+def terminate_namespace(namespace):
+    before=namespace_pids(namespace)
+    for pid in before:
+        net.cmd("sudo","kill","-KILL",str(pid),check=False)
+    deadline=time.monotonic()+5
+    while time.monotonic()<deadline:
+        remaining=namespace_pids(namespace)
+        if not remaining:
+            return before
+        time.sleep(.05)
+    raise RuntimeError(f"{namespace} still has processes after SIGKILL: {remaining}")
+
+
 def run(root,profile,index,python,library):
     out=root/("trial-"+str(index))
     out.mkdir(parents=True,exist_ok=True)
@@ -90,8 +115,21 @@ def run(root,profile,index,python,library):
             details["complete"]=False
             details["initial_failure"]="phase barrier not reached"
             return details
+        # Kill the ACTUAL receiver inside the namespace, not merely the
+        # sudo wrapper Popen PID. It previously survived and consumed all
+        # 230 messages while the replacement received zero: invalid test.
+        details["receiver_pids_before_kill"]=namespace_pids("citoq-bb")
+        if not details["receiver_pids_before_kill"]:
+            raise RuntimeError("original receiver not running in namespace at phase barrier")
+        killed=terminate_namespace("citoq-bb")
         terminate(rx1)
-        details["receiver_was_killed"]=rx1.returncode!=0
+        details["receiver_pids_killed"]=killed
+        details["receiver_pids_after_kill"]=namespace_pids("citoq-bb")
+        details["receiver_was_killed"]=(rx1.returncode!=0 and
+                                        bool(killed) and
+                                        not details["receiver_pids_after_kill"])
+        if (out/"receiver-before-kill.json").exists():
+            raise RuntimeError("old receiver completed normally; kill proof invalid")
         rx2,f=launch("receiver",out/"receiver-after-restart",python,library,5002,
                      recovery_first_seq=FIRST+1)
         processes.append(rx2);streams.append(f)
@@ -123,6 +161,13 @@ def run(root,profile,index,python,library):
                 details[kind+"_tail"]=(out/(kind+".log")).read_text(errors="replace")[-1100:]
         return details
     finally:
+        # All descendants must be gone before the same netns names/ports are
+        # reused by subsequent trials. Remove leaked sudo-detached workers.
+        for ns in net.NS:
+            try:
+                terminate_namespace(ns)
+            except Exception as exc:
+                details["cleanup_error_"+ns]=str(exc)
         for p in processes:terminate(p)
         for f in streams:f.close()
         for ns in net.NS:net.cmd("sudo","ip","netns","del",ns,check=False)
