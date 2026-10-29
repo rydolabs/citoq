@@ -15,7 +15,7 @@ SCENARIOS = {
     "256B-loss1": (100, 200, "netem_10ms_1pct", 2),
     "256B-loss2": (100, 200, "netem_10ms_2pct", 2),
 }
-COHORTS = {"citoq": "citoq", "zenoh-quic-mtls": "zenoh"}
+COHORTS = {"citoq": "citoq", "zenoh-quic-mtls": "zenoh", "cyclonedds-udp": "cyclonedds"}
 
 def median(rows, key, scale=1):
     vals=[r.get(key) for r in rows]
@@ -30,7 +30,7 @@ def main():
     errors=[]
     report={
         "methods":{
-            "transport":"CitoQ MsQuic mTLS vs Zenoh 1.10.1 QUIC/mTLS; no TCP fallback or SHM",
+            "transport":"CitoQ MsQuic mTLS vs Zenoh 1.10.1 QUIC/mTLS vs CycloneDDS 11.0.1 reliable DDS/RTPS UDP (NO TLS/mTLS)",
             "clock":"Linux shared CLOCK_MONOTONIC across two independent netns",
             "metric":"time embedded in sent 256B payload to receiving public Python callback",
             "sample_unit":"trial-level p50/p95/p99 medians; not pooled percentiles",
@@ -39,7 +39,8 @@ def main():
         "scenarios":{},
         "caveats":[
             "A successful publish is not the receiver's application delivery acknowledgement.",
-            "The two implementations differ in framing, QoS and callback scheduler even when QUIC/mTLS security is comparable.",
+            "CitoQ and Zenoh use authenticated QUIC/mTLS; CycloneDDS uses reliable DDS/RTPS UDP without TLS/mTLS. CycloneDDS is NOT security-normalized and cannot support a secure-transport superiority claim.",
+            "All three implementations differ in framing, QoS, reliability ACK and callback/poll scheduler.",
             "Public CI runners vary substantially; CPU seconds include control and process lifetime.",
             "A passing 2% loss sample cannot establish zero failure probability.",
             "The 256B payload validates sequence/time/size but not an independent application CRC."],
@@ -114,6 +115,9 @@ def main():
         zn=report["scenarios"][scenario].get("zenoh-quic-mtls",{}).get("p95_ms")
         if cq is not None and zn is not None and zn>0:
             report["scenarios"][scenario]["citoq_to_zenoh_p95_ratio"]=round(cq/zn,5)
+        dds=report["scenarios"][scenario].get("cyclonedds-udp",{}).get("p95_ms")
+        if cq is not None and dds is not None and dds>0:
+            report["scenarios"][scenario]["citoq_to_cyclonedds_p95_ratio_unsecured"]=round(cq/dds,5)
     report["errors"]=errors
     args.root.mkdir(parents=True,exist_ok=True)
     (args.root/"post-recovery-parity-report.json").write_text(json.dumps(report,indent=2)+"\n")
