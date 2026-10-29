@@ -43,6 +43,7 @@ def main():
             "A successful publish is not the receiver's application delivery acknowledgement.",
             "Three runtimes have different framing, QoS, discovery and callback schedulers. Only CitoQ and Zenoh share QUIC/mTLS security class.",
             "Cyclone DDS Python binary wheel has no DDS Security: its raw UDP results MUST NOT be called security-parity or encrypted transport parity.",
+            "Cyclone DDS receive uses native ReadCondition + WaitSet and 80ms duplicate grace, not the old 500us sleep poll.",
             "DDS/IDL CDR serialization adds its own framing overhead: 256 bytes is the application payload size, not the UDP on-wire frame size.",
             "Public CI runners vary substantially; CPU seconds include control and process lifetime.",
             "A passing 2% loss sample cannot establish zero failure probability.",
@@ -82,8 +83,13 @@ def main():
                 if len(strings)!=1:
                     errors.append(f"{scenario}/{cohort} repetition={rep}: {len(strings)} sender pacing reports")
                     continue
-                if engine=="cyclonedds" and "CYCLONEDDS_WRITER_ACKED=1" not in log.read_text(errors="replace"):
-                    errors.append(f"{scenario}/{cohort} repetition={rep}: reliable writer ACK not confirmed")
+                if engine=="cyclonedds":
+                    if "CYCLONEDDS_WRITER_ACKED=1" not in log.read_text(errors="replace"):
+                        errors.append(f"{scenario}/{cohort} repetition={rep}: reliable writer ACK not confirmed")
+                    receiver_log=directory/f"{profile}-{engine}-r{rep}-receiver.log"
+                    if (not receiver_log.is_file() or
+                        "CYCLONEDDS_RX_MODE=waitset" not in receiver_log.read_text(errors="replace")):
+                        errors.append(f"{scenario}/{cohort} repetition={rep}: CycloneDDS native WaitSet receiver not confirmed")
                 try:
                     trace=json.loads(strings[0])
                 except ValueError as exc:
