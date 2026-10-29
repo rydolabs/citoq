@@ -241,6 +241,30 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
             except subprocess.TimeoutExpired:
                 p.kill()
                 p.wait()
+        # Preserve per-node evidence even if a single receiver hangs until
+        # timeout and the main success-path never reaches its parsing block.
+        if not reports:
+            for index in range(nodes):
+                role = ("publisher" if index == 0 else
+                        "negative" if index == nodes-1 else "subscriber")
+                log = folder / f"node-{index:03d}-{role}.log"
+                output_text = count_markers(log)
+                reports.append({
+                    **parse_node(log), "role": role, "index": index,
+                    "exit": processes[index].returncode
+                    if index in processes else None,
+                    "ready_marker": "RECEIVER_READY" in output_text,
+                    "first_data_marker": "BENCH_FIRST_DATA" in output_text,
+                    "reported": "NODE_RESULT=" in output_text,
+                })
+            metrics["partial_received"] = sum(
+                r.get("received", 0) for r in reports
+                if r["role"] == "subscriber")
+            metrics["missing_node_results"] = [
+                r["index"] for r in reports if not r["reported"]]
+            metrics["subscriber_no_first_data"] = [
+                r["index"] for r in reports
+                if r["role"] == "subscriber" and not r["first_data_marker"]]
         for fp in files:
             fp.close()
         try:
