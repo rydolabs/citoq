@@ -141,11 +141,10 @@ def dds_run(args,collector):
     from cyclonedds.pub import DataWriter
     from cyclonedds.sub import DataReader
     from cyclonedds.idl import IdlStruct
-    from cyclonedds.idl.types import uint64,uint8,sequence
+    from cyclonedds.idl.types import uint8,sequence
     from cyclonedds.qos import Qos,Policy
     @dataclass
     class BenchMsg(IdlStruct,typename=TYPE_NAME):
-        seq: uint64
         payload: sequence[uint8]
     dp=DomainParticipant(22)
     topic=Topic(dp,NEGATIVE_TOPIC if args.role=="negative" else TOPIC,BenchMsg)
@@ -196,7 +195,7 @@ def dds_run(args,collector):
     time.sleep(.5)
     for seq in range(1,args.count+1):
         data=payload(seq)
-        writer.write(BenchMsg(seq,list(data)))
+        writer.write(BenchMsg(list(data)))
         time.sleep(.1)
     ack=writer.wait_for_acks(5_000_000_000)
     print("CYCLONEDDS_WRITER_ACKED="+str(int(ack)),flush=True)
