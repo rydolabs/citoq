@@ -934,6 +934,7 @@ private:
                 std::memory_order_acquire) ||
             !state ||
             !state->outbound ||
+            state->closing.load(std::memory_order_acquire) ||
             !outbound_.contains(
                 state->destination) ||
             outbound_.at(
