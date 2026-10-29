@@ -444,7 +444,7 @@ def main():
     ap.add_argument("--citoq-rx-sleep-us",type=int,default=500,
                     help="receiver poll-loop sleep in microseconds; 0 means busy polling (diagnostic only)")
     ap.add_argument("--cyclonedds-rx-mode",choices=("waitset","sleep"),
-                    default="waitset",
+                    default=os.environ.get("CYCLONEDDS_BENCH_RX_MODE","waitset"),
                     help="waitset native read-condition event receive (default), sleep retains old 500us polling")
     ap.add_argument("--citoq-rx-mode",choices=("sleep","event"),default="sleep",
                     help="event uses kernel wakeup + owner-thread poll_wait without busy spin")
