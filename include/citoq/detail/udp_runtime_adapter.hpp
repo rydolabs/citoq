@@ -349,6 +349,15 @@ public:
                 : &it->second;
     }
 
+    // Epoch changes when a Coordinator is replaced or expires, even if
+    // its authenticated QUIC destination and IP:port are reused. A previously
+    // connected MsQuic HQUIC handle does not survive a remote process restart.
+    std::uint64_t quic_route_generation(
+        DestinationId destination) const noexcept {
+        const auto it = quic_route_generations_.find(destination);
+        return it == quic_route_generations_.end() ? 0 : it->second;
+    }
+
     DiscoveryControlCore& control()
         noexcept {
         return control_;
@@ -544,6 +553,12 @@ private:
             for (const auto& [key, destinations] :
                  routes->second) {
                 (void)key;
+                // Invalidate every active destination's connection identity,
+                // not only its address. This generation is retained across
+                // disappearance and re-advertisement at the same endpoint.
+                for (const auto destination : destinations) {
+                    ++quic_route_generations_[destination];
+                }
                 release_destinations(
                     destinations);
             }
@@ -578,6 +593,11 @@ private:
     std::unordered_map<
         DestinationId,
         std::size_t> destination_refs_;
+
+    // Owner-thread only. Incremented when the Coordinator owning a route
+    // disappears or switches incarnation; never serialized on the wire.
+    std::unordered_map<DestinationId, std::uint64_t>
+        quic_route_generations_;
 };
 
 } // namespace citoq::detail
