@@ -83,7 +83,7 @@ jobs:
           python3 -m unittest discover -s benchmark -p 'test_*.py' -v
           python3 benchmark/restart_receiver_probe.py \
             --profile "${{ matrix.profile }}" \
-            --repeats 1 \
+            --repeats 3 \
             --python "$GITHUB_WORKSPACE/.venv/bin/python" \
             --library-dir "$GITHUB_WORKSPACE/build-benchmark" \
             --output-dir "receiver-restart-evidence/${{ matrix.profile }}"
