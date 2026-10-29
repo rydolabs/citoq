@@ -89,6 +89,7 @@ def launch(index, role, nodes, count, lifetime_ms, discovery_ms,
         role, "--index", str(index), "--nodes", str(nodes),
         "--count", str(count), "--lifetime-ms", str(lifetime_ms),
         "--discovery-timeout-ms", str(discovery_ms),
+        "--completion-file", str((output / "publisher-finished.marker").resolve()),
         "--ca", str(certs / "ca.pem"),
         "--server-cert", str(certs / "server.pem"),
         "--server-key", str(certs / "server.key"),
@@ -204,7 +205,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
             "exits_ok": all(x.get("exit") == 0 for x in reports),
             "all_positive_complete": all(
                 x.get("received") == count for x in subscribers),
-            "startup_rx_bytes": (
+            "control_and_startup_rx_bytes": (
                 net.delta(network_ready, network_before)["rx_bytes"]
                 if network_before and network_ready else None),
             "whole_trial_rx_bytes": (
