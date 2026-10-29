@@ -214,6 +214,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         metrics.update({
             "publisher_ready_ms": publisher.get("ready_ms"),
             "matched": publisher.get("matched"),
+            "zenoh_connected_peer_links": publisher.get("connected_peer_links"),
             "expected_matches": nodes-2,
             "first_data_all_ms": (
                 round((all_first_ns-publisher_start_ns)/1e6, 3)
@@ -259,7 +260,8 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
                         "resource_rows":rss_count})
         metrics["accepted"] = bool(
             metrics["processes"] == nodes and metrics["exits_ok"]
-            and (engine=="zenoh" or metrics["matched"] == nodes-2)
+            and ((engine=="zenoh" and metrics["zenoh_connected_peer_links"] >= nodes-1)
+                 or (engine!="zenoh" and metrics["matched"] == nodes-2))
             and metrics["publisher_ready_ms"] is not None
             and metrics["first_data_all_ms"] is not None
             and metrics["resource_rows"]==nodes
@@ -334,7 +336,7 @@ def main():
             "One publisher; N-2 positive subscribers; one negative subscriber, NOT an N-by-N mesh.",
             "Only CitoQ is MsQuic/mTLS. Zenoh peer mode uses TCP (scouting multicast+gossip) and CycloneDDS reliable UDP; security/transport is NOT equivalent.",
             "Only CitoQ uses the shared test mTLS CA and server identities.",
-            "Zenoh matching_status is a BOOLEAN any-matching signal, never an N-2 count; only per-receiver final delivery is comparable.",
+            "Zenoh SessionInfo.peers_zid() counts the N-1 directly connected peers (including the negative-interest node); this is NOT the N-2 topic-matched subscription count.",
             "CycloneDDS matched subscriptions are an N-2 exact count; SPDP/SEDP peer multicast triggers N² control traffic.",
             "Readiness is all matching publishers plus every positive node receiving data; not mesh readiness.",
             "8 spaced 256-byte application frames per positive subscriber; not long-running high-throughput soak.",
