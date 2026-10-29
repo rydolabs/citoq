@@ -97,12 +97,24 @@ def launch(index, role, nodes, count, lifetime_ms, discovery_ms,
         "--count", str(count), "--lifetime-ms", str(lifetime_ms),
         "--discovery-timeout-ms", str(discovery_ms),
         "--completion-file", str((output / "publisher-finished.marker").resolve()),
-        "--ca", str(certs / "ca.pem"),
-        "--server-cert", str(certs / "server.pem"),
-        "--server-key", str(certs / "server.key"),
-        "--client-cert", str(certs / "client.pem"),
-        "--client-key", str(certs / "client.key"),
     ]
+    if engine=="citoq":
+        args.extend([
+            "--ca", str(certs / "ca.pem"),
+            "--server-cert", str(certs / "server.pem"),
+            "--server-key", str(certs / "server.key"),
+            "--client-cert", str(certs / "client.pem"),
+            "--client-key", str(certs / "client.key"),
+        ])
+    else:
+        # DDS SPDP multicast on eth0, endpoint/user data is reliable unicast.
+        # Sockets, namespaces and bridge conditions are identical across engines.
+        if engine=="cyclonedds":
+            cfg=("<CycloneDDS><Domain id=\"any\"><General><Interfaces>"
+                 "<NetworkInterface name=\"eth0\"/></Interfaces>"
+                 "<AllowMulticast>spdp</AllowMulticast>"
+                 "</General></Domain></CycloneDDS>")
+            args.insert(7,"CYCLONEDDS_URI="+cfg)
     processes[index] = subprocess.Popen(
         args, stdout=stream, stderr=subprocess.STDOUT,
         cwd=ROOT, start_new_session=True)
