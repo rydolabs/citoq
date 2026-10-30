@@ -772,7 +772,6 @@ private:
                 bytes.begin(),
                 bytes.end());
 
-        trace("QUEUE_ACCEPTED_NOT_DELIVERED", destination, owned.size());
         post(
             [this,
              destination,
@@ -1322,13 +1321,11 @@ private:
                 lock(queue_mutex_);
             events_.push_back(
                 std::move(event));
-            if (diagnostics_ && (events_.size() == 64 ||
-                                 events_.size() == 256 ||
-                                 events_.size() == 1024 ||
-                                 events_.size() == 4096)) {
+            if (diagnostics_ && events_.size() >= queue_report_threshold_) {
                 std::fprintf(stderr, "CITOQ_DIAG_EVENT_QUEUE depth=%zu\n",
                              events_.size());
                 std::fflush(stderr);
+                queue_report_threshold_ *= 4; // high-water signal at most logarithmic
             }
             wake = wake_;
         }
@@ -1699,6 +1696,7 @@ private:
         std::size_t> completed_sends_{
             0};
 
+    std::size_t queue_report_threshold_{64};
     std::mutex queue_mutex_;
     std::deque<
         std::function<void()>>
