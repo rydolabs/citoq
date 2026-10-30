@@ -1,0 +1,142 @@
+name: CitoQ passive Discovery vs reconnect 100-200 netns
+on:
+  push:
+    branches: ['bench/citoq-passive-discovery-reconnect-*']
+    paths:
+      - 'bench/matrix/**'
+      - 'include/citoq/detail/**'
+      - 'src/posix_udp_control_manager.cpp'
+      - 'src/msquic_request_session_manager.cpp'
+      - 'src/native_runtime_c.cpp'
+      - 'tests/discovery_control_core_test.cpp'
+      - '.github/workflows/benchmark-citoq-passive.yml'
+      - 'src/c_api.cpp'
+      - 'include/citoq/citoq_c.h'
+      - 'python/citoq/_native.py'
+      - 'bench/matrix/public_discovery_node.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-discovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        nodes: [100, 200]
+        profile: [baseline, netem_10ms_1pct, netem_10ms_2pct]
+        engine: [passive, recover]
+    name: CitoQ ${{ matrix.engine }} N${{ matrix.nodes }} ${{ matrix.profile }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pin source and install tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          git cat-file -e 08188eba73284dd1069016174ad216f5e02d2cfa^{commit}
+          git merge-base --is-ancestor 08188eba73284dd1069016174ad216f5e02d2cfa HEAD
+          mkdir -p discovery-scale-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}/${{ matrix.engine }}
+          {
+            date -u -Is
+            git rev-parse HEAD
+            uname -a
+            nproc
+            cat /proc/meminfo | head -6
+            ulimit -n
+          } > discovery-scale-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}/runner.txt
+          sudo -n true
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake openssl iproute2 iputils-ping python3-venv
+      - name: Install pinned MsQuic 2.6.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://packages.microsoft.com/ubuntu/24.04/prod/pool/main/libm/libmsquic/libmsquic_2.6.1_amd64.deb -o /tmp/libmsquic.deb
+          sudo dpkg -i /tmp/libmsquic.deb
+          for header in msquic.h msquic_posix.h quic_sal_stub.h; do
+            sudo curl -fsSL "https://raw.githubusercontent.com/microsoft/msquic/v2.6.1/src/inc/$header" -o "/usr/local/include/$header"
+          done
+          SO="$(find /usr/lib /lib -type f -name 'libmsquic.so*' -print -quit)"
+          test -n "$SO"
+          sudo ln -sf "$SO" /usr/local/lib/libmsquic.so
+      - name: Build pinned CitoQ native mTLS driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          stabilize=0
+          if [[ '${{ matrix.engine }}' == recover ]]; then stabilize=1; fi
+          cmake -S . -B build-benchmark -G Ninja -DCMAKE_BUILD_TYPE=Release -DCITOQ_ENABLE_MSQUIC=ON -DBUILD_TESTING=OFF "-DCMAKE_CXX_FLAGS=-DCITOQ_PLUS_DISCOVERY=0 -DCITOQ_STABILIZE_RECONNECT=$stabilize"
+          cmake --build build-benchmark --target citoq_c citoq_native --parallel 2
+          test -s build-benchmark/libcitoq.so
+          test -s build-benchmark/libcitoq_native.so
+      - name: Create ephemeral mTLS certificates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p benchmark-certs
+          cd benchmark-certs
+          openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout ca.key -out ca.pem -subj '/CN=CitoQ Benchmark Root' -addext 'basicConstraints=critical,CA:TRUE' -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
+          openssl req -newkey rsa:2048 -nodes -keyout server.key -out server.csr -subj '/CN=10.202.0.12' >/dev/null 2>&1
+          sans="IP:10.202.0.12"
+          for i in $(seq 13 210); do sans="$sans,IP:10.202.0.$i"; done
+          printf '%s\n' "subjectAltName=$sans" 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature,keyEncipherment' 'extendedKeyUsage=serverAuth' > server.ext
+          openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out server.pem -days 1 -extfile server.ext >/dev/null 2>&1
+          openssl req -newkey rsa:2048 -nodes -keyout client.key -out client.csr -subj '/CN=CitoQ Benchmark Client' >/dev/null 2>&1
+          printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' 'extendedKeyUsage=clientAuth' > client.ext
+          openssl x509 -req -in client.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out client.pem -days 1 -extfile client.ext >/dev/null 2>&1
+          openssl verify -CAfile ca.pem -verify_ip 10.202.0.12 server.pem
+          openssl verify -CAfile ca.pem -verify_ip 10.202.0.210 server.pem
+          openssl verify -CAfile ca.pem -purpose sslclient client.pem
+
+      - name: Strict public Context discovery, verified netem and exact per-node delivery
+        shell: bash
+        env:
+          CITOQ_NATIVE_LEASE_MS: '1500'
+          CITOQ_NATIVE_ANNOUNCE_MS: '100'
+        run: |
+          set -euo pipefail
+          python3 -m py_compile bench/matrix/public_discovery_scale.py bench/matrix/public_discovery_node.py bench/m26/m26_efficiency.py
+          nodes=${{ matrix.nodes }}
+          repeats=2
+          lifetime_ms=105000
+          discovery_ms=90000
+          if [[ "$nodes" -ge 200 ]]; then
+            lifetime_ms=210000
+            discovery_ms=170000
+          fi
+          python3 bench/matrix/public_discovery_scale.py \
+            --nodes "$nodes" --profile '${{ matrix.profile }}' \
+            --repeats "$repeats" --count 8 \
+            --lifetime-ms "$lifetime_ms" --discovery-timeout-ms "$discovery_ms" \
+            --output 'discovery-scale-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}/${{ matrix.engine }}'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: citoq-${{ matrix.engine }}-n${{ matrix.nodes }}-${{ matrix.profile }}
+          path: discovery-scale-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}/${{ matrix.engine }}/
+          if-no-files-found: warn
+
+  api-and-session-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run targeted native regression (Debug enables assert-based tests)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
+          for recover in 0 1; do
+            cmake -S . -B "build-unit-$recover" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Debug -DCITOQ_ENABLE_MSQUIC=OFF \
+              -DBUILD_TESTING=ON \
+              "-DCMAKE_CXX_FLAGS=-DCITOQ_STABILIZE_RECONNECT=$recover -DCITOQ_PLUS_DISCOVERY=0"
+            cmake --build "build-unit-$recover" \
+              --target citoq_c_api_tests citoq_request_session_lifecycle_tests citoq_discovery_control_core_tests --parallel 2
+            ctest --test-dir "build-unit-$recover" -R 'citoq_(c_api_tests|request_session_lifecycle_tests|discovery_control_core_tests)' --output-on-failure
+          done
