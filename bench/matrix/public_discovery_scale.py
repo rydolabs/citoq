@@ -29,26 +29,22 @@ def apply_profile(nodes, profile, output):
     evidence.mkdir(exist_ok=True, parents=True)
     for i in range(nodes):
         namespace = f"m26-{i:03d}"
-        # Both publishers and subscribers have namespace egress shaping;
-        # client->server and server->client directions are independently
-        # shaped without mistakenly applying two netem stages per direction.
+        # A+ comparison parity: every engine gets 10ms +/- 2ms outbound
+        # latency, including 0% loss. Use a single qdisc per direction.
+        options = ["delay", "10ms", "2ms"]
         if loss:
-            net.cmd("ip", "netns", "exec", namespace, "tc", "qdisc", "replace",
-                    "dev", "eth0", "root", "netem", "delay", "10ms", "2ms",
-                    "loss", loss)
+            options.extend(["loss", loss])
+        net.cmd("ip", "netns", "exec", namespace, "tc", "qdisc",
+                "replace", "dev", "eth0", "root", "netem", *options)
         actual = net.cmd("ip", "netns", "exec", namespace, "tc", "-s",
                          "qdisc", "show", "dev", "eth0").stdout
         (evidence / f"{namespace}-qdisc.txt").write_text(actual)
-        if loss:
-            if "qdisc netem" not in actual or not re.search(
-                r"\bloss\s+" + re.escape(loss[:-1]) + r"(?:\.0+)?%", actual
-            ):
-                raise RuntimeError(
-                    f"{namespace}: requested {profile}, observed {actual}")
-        elif "qdisc netem" in actual:
-            raise RuntimeError(
-                f"{namespace}: baseline unexpectedly has netem: {actual}")
-
+        if "qdisc netem" not in actual or "delay 10ms" not in actual:
+            raise RuntimeError(f"{namespace}: required delay absent: {actual}")
+        if loss and not re.search(r"\\bloss\\s+" +
+                                  re.escape(loss[:-1]) +
+                                  r"(?:\\.0+)?%", actual):
+            raise RuntimeError(f"{namespace}: required loss absent: {actual}")
 
 def namespace_pids(ns):
     proc = net.cmd("ip", "netns", "pids", ns, check=False)
