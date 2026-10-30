@@ -77,6 +77,9 @@ def launch(index, role, nodes, count, lifetime_ms, discovery_ms,
         "PYTHONPATH": str(ROOT / "python"),
         "CITOQ_LIBRARY": str(ROOT / "build-benchmark/libcitoq.so"),
         "CITOQ_NATIVE_LIBRARY": str(ROOT / "build-benchmark/libcitoq_native.so"),
+        "CITOQ_NATIVE_LEASE_MS": os.environ.get("CITOQ_NATIVE_LEASE_MS","700"),
+        "CITOQ_NATIVE_ANNOUNCE_MS": os.environ.get("CITOQ_NATIVE_ANNOUNCE_MS","100"),
+        "CITOQ_NATIVE_DIAGNOSTICS": "1",
     }
     args = [
         "sudo", "-n", "ip", "netns", "exec", ns, "env",
@@ -117,6 +120,8 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         "messages_per_positive_subscriber": count,
         "topology": "one publisher; N-2 subscribers; one negative-interest node",
         "runner": "Linux netns + veth + Linux Bridge",
+        "lease_ms": int(os.environ.get("CITOQ_NATIVE_LEASE_MS","700")),
+        "announce_ms": int(os.environ.get("CITOQ_NATIVE_ANNOUNCE_MS","100")),
         "accepted": False,
     }
     start = time.monotonic()
@@ -223,6 +228,30 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
     except Exception as exc:
         metrics["error"] = str(exc)
     finally:
+        # Retain publisher and connection diagnostics even for timeouts,
+        # which otherwise omit all NODE_RESULT metrics.
+        publisher_log = folder / "node-000-publisher.log"
+        publisher_text = count_markers(publisher_log)
+        metrics["publisher_discovery_ready_seen"] = (
+            "PUBLIC_DISCOVERY_READY" in publisher_text)
+        metrics["publisher_send_failed"] = (
+            "PUBLIC_SEND_FAILED" in publisher_text)
+        metrics["publisher_async_send_drops"] = (
+            publisher_text.count("ASYNC_SEND_DROPPED_NOT_CONNECTED"))
+        metrics["publisher_transport_failures"] = (
+            publisher_text.count("stage=TRANSPORT_FAILED"))
+        metrics["publisher_lease_expiry_events"] = (
+            publisher_text.count("CITOQ_DIAG_LEASE_EXPIRED"))
+        metrics["publisher_quic_connected_events"] = (
+            publisher_text.count("stage=CONNECTED"))
+        metrics["publisher_quic_closed_events"] = (
+            publisher_text.count("stage=CONNECTION_CLOSED"))
+        expected_config = (f"lease_ms={metrics['lease_ms']}" in publisher_text
+                           and f"announce_ms={metrics['announce_ms']}" in publisher_text)
+        metrics["runtime_configuration_verified"] = expected_config
+        if not expected_config:
+            metrics["accepted"] = False
+            metrics.setdefault("error", "runtime lease/announce settings not observed")
         # Always kill the *real namespace workers*, not only sudo wrappers.
         # This matters when a child detaches from its wrapper process group.
         kill_workers(nodes)
