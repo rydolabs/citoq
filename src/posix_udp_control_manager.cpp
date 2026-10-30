@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <span>
@@ -109,6 +110,9 @@ public:
         control_port_ =
             ntohs(bound.sin_port);
         next_announcement_ms_ = 0;
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+        next_gossip_ms_ = 0;
+#endif
         return control_port_ != 0;
     }
 
@@ -172,6 +176,30 @@ public:
                 interval_ms_;
         }
 
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+        // Bounded fanout of *our own* authoritative summary plus hints.
+        // A hint never installs a coordinator, DemandKey or endpoint route:
+        // it only initiates a direct CTS2 handshake with the hinted peer.
+        if (now_ms >= next_gossip_ms_) {
+            next_gossip_ms_ = now_ms + 900;
+            if (!verified_peers_.empty()) {
+                const auto summary = udp_.announcement(control_port_, lease_ms_);
+                const auto count = std::min<std::size_t>(3, verified_peers_.size());
+                for (std::size_t j = 0; j < count; ++j) {
+                    const auto target = verified_peers_[(gossip_cursor_ + j) % verified_peers_.size()];
+                    if (send_bytes(target, summary)) ++stats_.gossip_announcements_sent;
+                    if (verified_peers_.size() > 1) {
+                        const auto other = verified_peers_[(gossip_cursor_ + j + 1) % verified_peers_.size()];
+                        if (other != target) {
+                            if (send_bytes(target, encode_gossip_hint(other))) ++stats_.gossip_hints_sent;
+                        }
+                    }
+                }
+                gossip_cursor_ = (gossip_cursor_ + count) % verified_peers_.size();
+            }
+        }
+#endif
+
         for (std::size_t i = 0;
              i < max_datagrams;
              ++i) {
@@ -223,6 +251,27 @@ public:
                     source.sin_port)};
 
             try {
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+                const auto incoming = std::span<const std::uint8_t>(
+                    buffer.data(), static_cast<std::size_t>(received));
+                if (incoming.size() == 10 && incoming[0] == 'C' &&
+                    incoming[1] == 'T' && incoming[2] == 'G' && incoming[3] == '1') {
+                    if (known_peer(endpoint) && now_ms >= next_invite_ms_) {
+                        const auto suggested = decode_gossip_hint(incoming);
+                        if (suggested.ipv4 != 0 && suggested.port != 0 &&
+                            suggested != endpoint && !known_peer(suggested)) {
+                            // A peer hint is untrusted metadata. Validate the
+                            // hinted endpoint by requesting a direct summary.
+                            const auto own = udp_.announcement(control_port_, lease_ms_);
+                            if (send_bytes(suggested, own)) {
+                                ++stats_.gossip_hints_received;
+                                next_invite_ms_ = now_ms + 300;
+                            }
+                        }
+                    }
+                    continue;
+                }
+#endif
                 const auto sends =
                     udp_.process_control(
                         std::span<
@@ -237,6 +286,13 @@ public:
                 work +=
                     send_actions(
                         sends);
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+                if (incoming.size() == 40 && incoming[0] == 'C' &&
+                    incoming[1] == 'T' && incoming[2] == 'S' && incoming[3] == '2') {
+                    const auto summary = citoq::decode_summary_announcement(incoming);
+                    remember_peer(UdpEndpoint{source_ip(endpoint), summary.control_port});
+                }
+#endif
             } catch (...) {
                 ++stats_.
                     malformed_datagrams;
@@ -297,6 +353,42 @@ public:
     }
 
 private:
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+    static std::uint32_t source_ip(UdpEndpoint endpoint) noexcept { return endpoint.ipv4; }
+
+    bool known_peer(UdpEndpoint e) const {
+        return std::find(verified_peers_.begin(), verified_peers_.end(), e)
+            != verified_peers_.end();
+    }
+
+    void remember_peer(UdpEndpoint e) {
+        if (e.ipv4 == 0 || e.port == 0 || known_peer(e)) return;
+        constexpr std::size_t cap = 64;
+        if (verified_peers_.size() < cap) {
+            verified_peers_.push_back(e);
+        } else {
+            verified_peers_[peer_replace_cursor_++ % cap] = e;
+        }
+        ++stats_.gossip_peers_learned;
+    }
+
+    static std::array<std::uint8_t, 10> encode_gossip_hint(UdpEndpoint e) {
+        return {'C', 'T', 'G', '1',
+            static_cast<std::uint8_t>(e.ipv4),
+            static_cast<std::uint8_t>(e.ipv4 >> 8),
+            static_cast<std::uint8_t>(e.ipv4 >> 16),
+            static_cast<std::uint8_t>(e.ipv4 >> 24),
+            static_cast<std::uint8_t>(e.port),
+            static_cast<std::uint8_t>(e.port >> 8)};
+    }
+
+    static UdpEndpoint decode_gossip_hint(std::span<const std::uint8_t> b) {
+        return UdpEndpoint{
+            std::uint32_t(b[4]) | (std::uint32_t(b[5]) << 8) |
+            (std::uint32_t(b[6]) << 16) | (std::uint32_t(b[7]) << 24),
+            std::uint16_t(std::uint16_t(b[8]) | (std::uint16_t(b[9]) << 8))};
+    }
+#endif
     static sockaddr_in
     to_sockaddr(
         UdpEndpoint endpoint) {
@@ -386,13 +478,24 @@ private:
 
     int fd_{-1};
     std::uint16_t control_port_{};
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+    std::uint32_t lease_ms_{3000};
+#else
     std::uint32_t lease_ms_{1000};
+#endif
     std::uint32_t interval_ms_{150};
     std::uint64_t
         next_announcement_ms_{};
 
     std::vector<UdpEndpoint>
         targets_;
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+    std::vector<UdpEndpoint> verified_peers_;
+    std::uint64_t next_gossip_ms_{};
+    std::uint64_t next_invite_ms_{};
+    std::size_t gossip_cursor_{};
+    std::size_t peer_replace_cursor_{};
+#endif
 
     PosixUdpControlStats stats_;
 };
