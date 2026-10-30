@@ -1487,6 +1487,28 @@ private:
                 break;
             }
 
+            case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
+                if (state->outbound && self->diagnostics_) {
+                    std::fprintf(stderr,
+                        "CITOQ_DIAG_QUIC stage=SHUTDOWN_TRANSPORT destination=%llu status=%lld error_code=%llu\n",
+                        static_cast<unsigned long long>(state->destination),
+                        static_cast<long long>(
+                            event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status),
+                        static_cast<unsigned long long>(
+                            event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode));
+                    std::fflush(stderr);
+                }
+                break;
+            case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
+                if (state->outbound && self->diagnostics_) {
+                    std::fprintf(stderr,
+                        "CITOQ_DIAG_QUIC stage=SHUTDOWN_PEER destination=%llu error_code=%llu\n",
+                        static_cast<unsigned long long>(state->destination),
+                        static_cast<unsigned long long>(
+                            event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode));
+                    std::fflush(stderr);
+                }
+                break;
             case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
                 self->post(
                     [self,
