@@ -2,6 +2,8 @@
 
 #include <array>
 #include <cassert>
+#include <chrono>
+#include <thread>
 #include <cstdint>
 
 int main() {
@@ -214,6 +216,11 @@ int main() {
 
     actions =
         sessions.reconcile();
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+    assert(actions.empty()); // no immediate retry storm
+    std::this_thread::sleep_for(std::chrono::milliseconds(330));
+    actions = sessions.reconcile();
+#endif
     assert(actions.size() == 1);
     assert(
         actions[0].kind ==
