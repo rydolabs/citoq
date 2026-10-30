@@ -30,6 +30,15 @@ int main(void) {
         &has_demand) == CITOQ_STATUS_OK);
     assert(has_demand == 1);
 
+    /* A local subscription must not count as a remote route. This
+       observation API also rejects null output pointers. */
+    size_t matched_remote = 17;
+    assert(citoq_context_remote_match_count(
+        ctx, 100, "drone_17", 8, &matched_remote) == CITOQ_STATUS_OK);
+    assert(matched_remote == 0);
+    assert(citoq_context_remote_match_count(
+        ctx, 100, "drone_17", 8, NULL) == CITOQ_STATUS_INVALID_ARGUMENT);
+
     const uint8_t hello[] = {'h','e','l','l','o'};
     size_t delivered = 99;
 
