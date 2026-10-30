@@ -6,6 +6,8 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -13,6 +15,7 @@
 #include <mutex>
 #include <span>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -650,6 +653,7 @@ private:
             return false;
         }
 
+        trace("CONNECT_BEGIN", destination);
         auto state =
             std::make_shared<
                 ConnectionState>();
@@ -712,6 +716,7 @@ private:
             return false;
         }
 
+        trace("CONNECT_START_OK", destination);
         return true;
     }
 
@@ -726,6 +731,7 @@ private:
                 destination,
                 RequestStatus::
                     Unavailable);
+        trace("DISCONNECT", destination);
 
         if (it == outbound_.end()) {
             return;
@@ -766,6 +772,7 @@ private:
                 bytes.begin(),
                 bytes.end());
 
+        trace("QUEUE_ACCEPTED_NOT_DELIVERED", destination, owned.size());
         post(
             [this,
              destination,
@@ -792,6 +799,7 @@ private:
             !it->second->connected.load(
                     std::memory_order_acquire) ||
             !it->second->handle) {
+            trace("ASYNC_SEND_DROPPED_NOT_CONNECTED", destination, bytes.size());
             runtime_.request_network()
                 .detach_session(
                     destination,
@@ -824,6 +832,7 @@ private:
                     context,
                     &handle))) {
             delete context;
+            trace("STREAM_OPEN_FAILED", destination, bytes.size());
             transport_failed(
                 destination);
             return;
@@ -841,6 +850,7 @@ private:
             stream->handle =
                 nullptr;
             delete context;
+            trace("STREAM_START_FAILED", destination, bytes.size());
             transport_failed(
                 destination);
             return;
@@ -859,6 +869,7 @@ private:
                     0);
             }
 
+            trace("STREAM_SEND_FAILED", destination);
             transport_failed(
                 destination);
         }
@@ -907,6 +918,7 @@ private:
 
     void transport_failed(
         DestinationId destination) {
+        trace("TRANSPORT_FAILED", destination);
         runtime_.request_network()
             .detach_session(
                 destination,
@@ -966,6 +978,7 @@ private:
         state->connected.store(
             true,
             std::memory_order_release);
+        trace("CONNECTED", state->destination);
 
         runtime_.request_network()
             .attach_session(
@@ -992,6 +1005,8 @@ private:
         state->connected.store(
             false,
             std::memory_order_release);
+        if (state->outbound)
+            trace("CONNECTION_CLOSED", state->destination);
 
         if (state->outbound) {
             const auto it =
@@ -1307,6 +1322,14 @@ private:
                 lock(queue_mutex_);
             events_.push_back(
                 std::move(event));
+            if (diagnostics_ && (events_.size() == 64 ||
+                                 events_.size() == 256 ||
+                                 events_.size() == 1024 ||
+                                 events_.size() == 4096)) {
+                std::fprintf(stderr, "CITOQ_DIAG_EVENT_QUEUE depth=%zu\n",
+                             events_.size());
+                std::fflush(stderr);
+            }
             wake = wake_;
         }
 
@@ -1636,6 +1659,15 @@ private:
     }
 
 private:
+    void trace(const char* stage, DestinationId destination,
+               std::size_t detail = 0) const {
+        if (!diagnostics_) return;
+        std::fprintf(stderr,
+            "CITOQ_DIAG_QUIC stage=%s destination=%llu detail=%zu\n",
+            stage, static_cast<unsigned long long>(destination), detail);
+        std::fflush(stderr);
+    }
+
     EmbeddedHostRuntime& runtime_;
     RequestSessionLifecycleCore*
         lifecycle_{};
@@ -1650,6 +1682,10 @@ private:
     std::uint16_t listen_port_{};
     bool ready_{false};
     bool owns_wait_hook_{false};
+    const bool diagnostics_ = [] {
+        const char* value = std::getenv("CITOQ_NATIVE_DIAGNOSTICS");
+        return value && std::string_view(value) == "1";
+    }();
 
     std::atomic<bool> stopping_{
         false};
