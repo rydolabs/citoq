@@ -1,0 +1,27 @@
+name: CitoQ stabilization full native unit regression
+on:
+  push:
+    branches: ['bench/citoq-stabilization-diagnose-*']
+    paths:
+      - '.github/workflows/citoq-stabilization-regression.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  full-native-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure compile and execute CMake C++ tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake
+          cmake -S . -B build-stabilization-unit -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCITOQ_ENABLE_MSQUIC=OFF -DBUILD_TESTING=ON \
+            -DCMAKE_CXX_FLAGS=-DCITOQ_PLUS_DISCOVERY=0
+          cmake --build build-stabilization-unit --parallel 3
+          ctest --test-dir build-stabilization-unit \
+            --output-on-failure --parallel 2 --timeout 300
