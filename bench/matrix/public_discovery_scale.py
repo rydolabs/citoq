@@ -194,6 +194,8 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         total_invalid = sum(x.get("invalid", 0) for x in reports)
         metrics.update({
             "publisher_ready_ms": publisher.get("ready_ms"),
+            "publisher_quic_ready_ms": publisher.get("quic_ready_ms"),
+            "publisher_connected_sessions": publisher.get("quic_connected"),
             "matched": publisher.get("matched"),
             "expected_matches": nodes-2,
             "first_data_all_ms": (
@@ -220,6 +222,8 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
             metrics["processes"] == nodes and metrics["exits_ok"]
             and metrics["matched"] == nodes-2
             and metrics["publisher_ready_ms"] is not None
+            and metrics["publisher_quic_ready_ms"] is not None
+            and metrics["publisher_connected_sessions"] == nodes-2
             and metrics["first_data_all_ms"] is not None
             and metrics["all_positive_complete"]
             and total_received == total_expected
@@ -234,6 +238,10 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         publisher_text = count_markers(publisher_log)
         metrics["publisher_discovery_ready_seen"] = (
             "PUBLIC_DISCOVERY_READY" in publisher_text)
+        metrics["publisher_quic_ready_seen"] = (
+            "PUBLIC_QUIC_READY" in publisher_text)
+        metrics["publisher_quic_not_ready_seen"] = (
+            "PUBLIC_QUIC_NOT_READY" in publisher_text)
         metrics["publisher_send_failed"] = (
             "PUBLIC_SEND_FAILED" in publisher_text)
         metrics["publisher_async_send_drops"] = (
@@ -336,7 +344,7 @@ def main():
     (args.output/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
     with (args.output/"summary.csv").open("w", newline="") as f:
         keys=["nodes","profile","repetition","accepted","matched",
-              "publisher_ready_ms","first_data_all_ms","received",
+              "publisher_ready_ms","publisher_quic_ready_ms","publisher_connected_sessions","first_data_all_ms","received",
               "expected_deliveries","duplicates","invalid","negative_received",
               "elapsed_s","error"]
         writer=csv.DictWriter(f,fieldnames=keys,extrasaction="ignore")
