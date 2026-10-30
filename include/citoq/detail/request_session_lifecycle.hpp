@@ -3,6 +3,8 @@
 #include <citoq/detail/request_reply_core.hpp>
 #include <citoq/detail/udp_runtime_adapter.hpp>
 
+#include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
@@ -36,9 +38,29 @@ private:
 
     struct Tracked {
         UdpEndpoint endpoint{};
-        State state{
-            State::Connecting};
+        State state{State::Connecting};
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+        std::chrono::steady_clock::time_point started{};
+#endif
     };
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+    struct Retry {
+        UdpEndpoint endpoint{};
+        std::uint32_t failures{0};
+        std::chrono::steady_clock::time_point not_before{};
+    };
+    void note_failure(DestinationId id, UdpEndpoint endpoint) {
+        auto& retry = retries_[id];
+        if (retry.endpoint != endpoint) retry.failures = 0;
+        retry.endpoint = endpoint;
+        if (retry.failures < 6) ++retry.failures;
+        const auto delay_ms = std::min<std::uint32_t>(
+            4000, (125u << std::min<std::uint32_t>(retry.failures - 1, 5))
+            + static_cast<std::uint32_t>(id % 101));
+        retry.not_before = std::chrono::steady_clock::now()
+            + std::chrono::milliseconds(delay_ms);
+    }
+#endif
 
 public:
     RequestSessionLifecycleCore(
@@ -152,57 +174,61 @@ public:
             }
         }
 
-        std::vector<RequestSessionAction>
-            actions;
-
-        for (auto it =
-                 tracked_.begin();
-             it != tracked_.end();) {
-            const auto desired =
-                desired_endpoints.find(
-                    it->first);
-
-            if (
-                desired !=
-                    desired_endpoints.end() &&
-                desired->second ==
-                    it->second.endpoint) {
+        std::vector<RequestSessionAction> actions;
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+        const auto now = std::chrono::steady_clock::now();
+        for (auto it = retries_.begin(); it != retries_.end();) {
+            const auto found = desired_endpoints.find(it->first);
+            if (found == desired_endpoints.end() ||
+                found->second != it->second.endpoint)
+                it = retries_.erase(it);
+            else ++it;
+        }
+#endif
+        for (auto it = tracked_.begin(); it != tracked_.end();) {
+            const auto desired = desired_endpoints.find(it->first);
+            if (desired != desired_endpoints.end() &&
+                desired->second == it->second.endpoint) {
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+                if (it->second.state == State::Connecting &&
+                    now - it->second.started > std::chrono::seconds(10)) {
+                    note_failure(it->first, it->second.endpoint);
+                } else {
+                    ++it;
+                    continue;
+                }
+#else
                 ++it;
                 continue;
+#endif
             }
-
-            actions.push_back(
-                RequestSessionAction{
-                    RequestSessionActionKind::
-                        Disconnect,
-                    it->first,
-                    it->second.endpoint});
-
+            actions.push_back(RequestSessionAction{
+                RequestSessionActionKind::Disconnect,
+                it->first, it->second.endpoint});
             it = tracked_.erase(it);
         }
 
-        for (const auto& [destination,
-                           endpoint] :
-             desired_endpoints) {
-            if (tracked_.contains(
-                    destination)) {
-                continue;
-            }
-
-            tracked_.emplace(
-                destination,
-                Tracked{
-                    endpoint,
-                    State::Connecting});
-
-            actions.push_back(
-                RequestSessionAction{
-                    RequestSessionActionKind::
-                        Connect,
-                    destination,
-                    endpoint});
+        for (const auto& [destination, endpoint] : desired_endpoints) {
+            if (tracked_.contains(destination)) continue;
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+            const auto retry = retries_.find(destination);
+            if (retry != retries_.end() &&
+                retry->second.endpoint == endpoint &&
+                now < retry->second.not_before) continue;
+            std::size_t connecting = 0;
+            for (const auto& [id, tracked] : tracked_)
+                if (tracked.state == State::Connecting) ++connecting;
+            if (connecting >= 64) continue;
+            tracked_.emplace(destination, Tracked{
+                endpoint, State::Connecting, now});
+#else
+            tracked_.emplace(destination, Tracked{
+                endpoint, State::Connecting});
+#endif
+            actions.push_back(RequestSessionAction{
+                RequestSessionActionKind::Connect,
+                destination, endpoint});
         }
-
         return actions;
     }
 
@@ -224,6 +250,9 @@ public:
 
         it->second.state =
             State::Connected;
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+        retries_.erase(destination);
+#endif
         return true;
     }
 
@@ -243,15 +272,22 @@ public:
             return false;
         }
 
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+        note_failure(destination, endpoint);
+#endif
         tracked_.erase(it);
         return true;
     }
 
     bool mark_disconnected(
         DestinationId destination) {
-        return
-            tracked_.erase(
-                destination) != 0;
+        const auto it = tracked_.find(destination);
+        if (it == tracked_.end()) return false;
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+        note_failure(destination, it->second.endpoint);
+#endif
+        tracked_.erase(it);
+        return true;
     }
 
     bool is_connecting(
@@ -306,6 +342,9 @@ private:
     std::unordered_map<
         DestinationId,
         Tracked> tracked_;
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+    std::unordered_map<DestinationId, Retry> retries_;
+#endif
 };
 
 } // namespace citoq::detail
