@@ -51,6 +51,20 @@ Look for repeated CONNECT_BEGIN/CLOSED cycles and event queue high-water alerts.
 
 These are hypotheses only; the prior failures do not identify the root cause.
 
+## Important benchmark confound: discovery probes are actual data sends
+The current `public_discovery_node.py` checks the number of routes by calling
+`ctx.publish_raw` with a probe payload every 25 ms. This is **not** a passive
+Discovery query: each probe may create QUIC stream and delivery load on every
+already-matched subscriber, particularly for late convergence at 200 nodes.
+A long discovery window can generate very many probe sends, and is not directly
+comparable to A+'s membership-only discovery timer. Treat current failures as
+end-to-end results **under probe stress**, not proof of a pure Discovery defect.
+
+Before interpreting performance rankings, add a non-sending matched-destination
+count query or run a separate low-frequency-probe cohort. Log the total probe
+count and compare 25ms vs a sparse interval at identical network conditions,
+especially 200 nodes at 1-2% loss.
+
 ## Next safety gates (after screening)
 1. Isolate lease effect by preserving the same binary, announce interval and
    netem across cohort conditions. Report passes, discovery ready latency,
