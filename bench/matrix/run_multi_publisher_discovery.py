@@ -96,12 +96,11 @@ def metrics_for_node(root,index,nodes,publishers,proc):
     m=re.search(
         r"user_s=([0-9.]+) system_s=([0-9.]+) max_rss_kb=(\d+)",
         text)
-    return dict(index=index,role=role,exit=proc.returncode,
-                resource=(
-                    dict(user_s=float(m[1]),system_s=float(m[2]),
-                         rss_kb=int(m[3]))
-                    if m else None),
-                **result)
+    return {**result, "index":index,"role":role,"exit":proc.returncode,
+            "resource":(
+                dict(user_s=float(m[1]),system_s=float(m[2]),
+                     rss_kb=int(m[3]))
+                if m else None)}
 
 
 def trial(nodes,publishers,engine,profile,repetition,count,
