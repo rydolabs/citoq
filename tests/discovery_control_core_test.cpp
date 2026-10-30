@@ -235,5 +235,32 @@ int main() {
             .route_requests == 2);
     assert(publisher_control.stats().route_retries == 1);
 
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+    // A new demand after withdrawal must be recoverable, and validated
+    // routes must receive a bounded periodic anti-entropy probe.
+    subscriber.add_interest(10, position);
+    const auto fresh_announcement = subscriber_control.announcement(47010, 10000);
+    actions = publisher_control.on_summary(fresh_announcement, 2000);
+    assert(actions.size() == 1);
+    auto fresh_req = subscriber_control.on_snapshot_request(
+        snapshot_request(actions[0]));
+    auto fresh_batch = citoq::decode_snapshot_batch(fresh_req.bytes);
+    assert(publisher_control.on_snapshot_batch(fresh_batch).empty());
+    actions = publisher_control.ensure_routes(position);
+    assert(actions.size() == 1);
+    auto fresh_route = subscriber_control.on_route_request(
+        route_request(actions[0]), endpoint);
+    assert(publisher_control.on_route_batch(
+        citoq::decode_route_batch(fresh_route.bytes)));
+    assert(publisher_control.on_summary(fresh_announcement, 2050).empty());
+    actions = publisher_control.on_summary(fresh_announcement, 5000);
+    assert(actions.size() == 1);
+    assert(route_request(actions[0]).key == position);
+    assert(publisher_control.stats().route_anti_entropy_probes >= 1);
+    assert(publisher_control.on_route_batch(
+        citoq::decode_route_batch(fresh_route.bytes)));
+    assert(publisher_control.on_summary(fresh_announcement, 5100).empty());
+#endif
+
     return 0;
 }
