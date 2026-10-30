@@ -113,6 +113,12 @@ CITOQ_C_API citoq_status_t citoq_context_has_demand(
     citoq_context_t* context, uint64_t type_id,
     const char* resource, size_t resource_size,
     int* out_has_demand);
+// Passive discovery inspection: counts remote DestinationIds with resolved
+// DemandKey routes. Does not send data, and does not establish QUIC readiness.
+CITOQ_C_API citoq_status_t citoq_context_remote_match_count(
+    citoq_context_t* context, uint64_t type_id,
+    const char* resource, size_t resource_size,
+    size_t* out_count);
 CITOQ_C_API citoq_status_t citoq_context_advertise(
     citoq_context_t* context, uint64_t type_id,
     const char* resource, size_t resource_size);
