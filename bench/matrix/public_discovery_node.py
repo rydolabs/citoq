@@ -90,14 +90,14 @@ def main():
   target=a.nodes-2
   matched=0
   until=time.monotonic()+a.discovery_timeout_ms/1000
-  probe=0
+  checks=0
   while time.monotonic()<until:
    transport.poll()
-   probe+=1
-   matched=ctx.publish_raw(TYPE,b"P"+struct.pack("<Q",probe),RESOURCE)
-   transport.poll()
+   checks+=1
+   matched=ctx.remote_match_count_raw(TYPE,RESOURCE)
    if matched==target:break
    time.sleep(.025)
+  print(f"PUBLIC_PASSIVE_MATCH_CHECKS count={checks}",flush=True)
   ready_ms=(now()-t0)/1e6 if matched==target else None
   if ready_ms is not None:
    print(f"PUBLIC_DISCOVERY_READY elapsed_ms={ready_ms:.3f}",flush=True)
