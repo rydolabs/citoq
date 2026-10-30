@@ -313,6 +313,9 @@ public:
 
         // Lazy typed requests are encoded only after an attached session is
         // ready, and deadlines advance from the same loop-owner poll path.
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+        drop_expired_deferred();
+#endif
         runtime_.request_network()
             .progress();
 
@@ -785,6 +788,63 @@ private:
         return true;
     }
 
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+    // Only data that never reached StreamOpen may be replayed automatically.
+    // A successful StreamSend can still fail at the application layer and
+    // requires a different, explicitly acknowledged Reliable delivery mode.
+    struct DeferredData {
+        std::vector<std::uint8_t> bytes;
+        std::chrono::steady_clock::time_point expires_at;
+    };
+    void defer_unsent(DestinationId destination,
+                      std::vector<std::uint8_t> bytes) {
+        constexpr std::size_t kMaxDeferredFrames = 1024;
+        constexpr std::size_t kMaxDeferredBytes = 4u * 1024u * 1024u;
+        if (deferred_frames_ >= kMaxDeferredFrames ||
+            bytes.size() > kMaxDeferredBytes - deferred_bytes_) {
+            trace("DEFERRED_REJECTED_LIMIT", destination, bytes.size());
+            return;
+        }
+        deferred_bytes_ += bytes.size();
+        ++deferred_frames_;
+        deferred_[destination].push_back(DeferredData{
+            std::move(bytes),
+            std::chrono::steady_clock::now() + std::chrono::seconds(8)});
+        trace("DEFERRED_QUEUED", destination);
+    }
+    void drop_expired_deferred() {
+        const auto now = std::chrono::steady_clock::now();
+        for (auto it = deferred_.begin(); it != deferred_.end();) {
+            auto& pending = it->second;
+            while (!pending.empty() && pending.front().expires_at <= now) {
+                deferred_bytes_ -= pending.front().bytes.size();
+                --deferred_frames_;
+                trace("DEFERRED_EXPIRED", it->first);
+                pending.pop_front();
+            }
+            if (pending.empty()) it = deferred_.erase(it);
+            else ++it;
+        }
+    }
+    void flush_deferred(DestinationId destination) {
+        const auto it = deferred_.find(destination);
+        if (it == deferred_.end()) return;
+        auto pending = std::move(it->second);
+        deferred_.erase(it);
+        const auto now = std::chrono::steady_clock::now();
+        for (auto& item : pending) {
+            deferred_bytes_ -= item.bytes.size();
+            --deferred_frames_;
+            if (item.expires_at <= now) {
+                trace("DEFERRED_EXPIRED", destination);
+                continue;
+            }
+            trace("DEFERRED_REPLAY", destination, item.bytes.size());
+            send_packet(destination, std::move(item.bytes));
+        }
+    }
+#endif
+
     void send_packet(
         DestinationId destination,
         std::vector<std::uint8_t>
@@ -798,7 +858,11 @@ private:
             !it->second->connected.load(
                     std::memory_order_acquire) ||
             !it->second->handle) {
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+            defer_unsent(destination, std::move(bytes));
+#else
             trace("ASYNC_SEND_DROPPED_NOT_CONNECTED", destination, bytes.size());
+#endif
             runtime_.request_network()
                 .detach_session(
                     destination,
@@ -992,6 +1056,9 @@ private:
                         destination,
                         bytes);
                 });
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+        flush_deferred(state->destination);
+#endif
     }
 
     void on_connection_closed(
@@ -1719,6 +1786,12 @@ private:
             0};
 
     std::size_t queue_report_threshold_{64};
+#if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
+    std::unordered_map<DestinationId, std::deque<DeferredData>> deferred_;
+    std::size_t deferred_frames_{};
+    std::size_t deferred_bytes_{};
+#endif
+
     std::mutex queue_mutex_;
     std::deque<
         std::function<void()>>
