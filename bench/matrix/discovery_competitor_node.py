@@ -214,7 +214,7 @@ def main():
     p.add_argument("--discovery-timeout-ms",type=int,default=90000)
     p.add_argument("--completion-file")
     args=p.parse_args()
-    if not (3<=args.nodes<=100 and 0<=args.index<args.nodes and
+    if not (3<=args.nodes<=200 and 0<=args.index<args.nodes and
             1<=args.count<=100):
         p.error("invalid shape")
     collector=Collector(args.count,args.role=="negative")
