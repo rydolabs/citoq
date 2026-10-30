@@ -195,6 +195,12 @@ def citoq_run(args, collector):
         if not pub:
             for p in range(args.publishers):
                 def handler(raw, pub_idx=p):
+                    # CitoQ publish_raw() returns the subscriber count, so
+                    # readiness probes are real control-purpose publications.
+                    # They are NOT part of the 8-frame D-prefixed payload set.
+                    # Preserve invalid accounting for malformed D frames.
+                    if bytes(raw).startswith(b"P"):
+                        return
                     collector.accept(pub_idx, raw)
                 if args.role == "subscriber":
                     ctx.subscribe_raw(BASE_TYPE+p, handler, RESOURCE)
