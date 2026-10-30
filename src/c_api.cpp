@@ -957,6 +957,26 @@ citoq_status_t citoq_context_has_demand(
     }
 }
 
+citoq_status_t citoq_context_remote_match_count(
+    citoq_context_t* context,
+    uint64_t type_id,
+    const char* resource,
+    size_t resource_size,
+    size_t* out_count) {
+    if (!context || !out_count || !valid_bytes(resource, resource_size))
+        return CITOQ_STATUS_INVALID_ARGUMENT;
+    try {
+        const auto name = resource_size == 0
+            ? std::string_view{}
+            : std::string_view(resource, resource_size);
+        *out_count = context->state->host().remote_destinations(
+            context->state->key(type_id, name)).size();
+        return CITOQ_STATUS_OK;
+    } catch (...) {
+        return CITOQ_STATUS_INTERNAL_ERROR;
+    }
+}
+
 citoq_status_t citoq_context_advertise(
     citoq_context_t* context, uint64_t type_id,
     const char* resource, size_t resource_size) {
