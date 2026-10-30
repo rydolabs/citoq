@@ -2,8 +2,13 @@
 #include <citoq/detail/linux_request_runtime_driver.hpp>
 
 #include <arpa/inet.h>
+#include <charconv>
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <stdexcept>
 #include <utility>
 
 struct citoq_native_runtime {
@@ -13,6 +18,25 @@ struct citoq_native_runtime {
 
 namespace {
 std::string optional_string(const char* s) { return s ? std::string(s) : std::string{}; }
+
+// Opt-in runtime tuning for diagnosis. The existing C ABI layout is preserved.
+// Reject malformed/out-of-range values instead of silently taking defaults.
+std::uint32_t diagnostic_option(const char* name, std::uint32_t fallback,
+                                std::uint32_t minimum, std::uint32_t maximum) {
+    const char* raw = std::getenv(name);
+    if (!raw) return fallback;
+    const auto input = std::string_view(raw);
+    std::uint32_t value{};
+    const auto parsed = std::from_chars(input.data(), input.data() + input.size(), value);
+    if (parsed.ec != std::errc{} || parsed.ptr != input.data() + input.size() ||
+        value < minimum || value > maximum)
+        throw std::invalid_argument(std::string("invalid ") + name);
+    return value;
+}
+bool diagnostics_enabled() {
+    const char* raw = std::getenv("CITOQ_NATIVE_DIAGNOSTICS");
+    return raw && std::string_view(raw) == "1";
+}
 }
 
 extern "C" citoq_native_runtime_t* citoq_native_open(const citoq_native_options_t* arg) {
@@ -26,8 +50,19 @@ extern "C" citoq_native_runtime_t* citoq_native_open(const citoq_native_options_
         options.destination = arg->destination;
         options.control_port = arg->control_port;
         options.quic_port = arg->quic_port;
-        options.lease_ms = 700;
-        options.announce_interval_ms = 100;
+        options.lease_ms = diagnostic_option(
+            "CITOQ_NATIVE_LEASE_MS", 700, 100, 60000);
+        options.announce_interval_ms = diagnostic_option(
+            "CITOQ_NATIVE_ANNOUNCE_MS", 100, 20, 10000);
+        if (options.lease_ms < options.announce_interval_ms * 2)
+            throw std::invalid_argument("lease must be at least two announce intervals");
+        if (diagnostics_enabled()) {
+            std::fprintf(stderr,
+                "CITOQ_DIAG_CONFIG coordinator=%llu lease_ms=%u announce_ms=%u\n",
+                static_cast<unsigned long long>(options.coordinator),
+                options.lease_ms, options.announce_interval_ms);
+            std::fflush(stderr);
+        }
         if (arg->announcement_ipv4 && arg->announcement_port) {
             in_addr address{};
             if (::inet_pton(AF_INET, arg->announcement_ipv4, &address) != 1)
