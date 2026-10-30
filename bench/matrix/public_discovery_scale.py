@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "bench/m26"))
 import m26_efficiency as net  # noqa: E402
 
 PROFILES = {"baseline": None, "netem_10ms_1pct": "1%", "netem_10ms_2pct": "2%"}
-LIMIT = 100
+LIMIT = 200
 
 
 def apply_profile(nodes, profile, output):
@@ -154,7 +154,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         ready_detected = False
         first_detected = False
         overall_deadline = time.monotonic() + min(
-            150, (discovery_ms + count*150 + 12000)/1000)
+            250, (max(discovery_ms, lifetime_ms) + count*150 + 15000)/1000)
         while time.monotonic() < overall_deadline:
             sender_text = count_markers(sender_log)
             if not ready_detected and "PUBLIC_DISCOVERY_READY" in sender_text:
@@ -259,7 +259,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--nodes", type=int, choices=(3,10,30,50,100), required=True)
+    parser.add_argument("--nodes", type=int, choices=(3,10,30,50,100,200), required=True)
     parser.add_argument("--profile", choices=tuple(PROFILES), required=True)
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--count", type=int, default=8)
