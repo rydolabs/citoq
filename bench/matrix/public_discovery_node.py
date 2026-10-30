@@ -99,12 +99,23 @@ def main():
    time.sleep(.025)
   print(f"PUBLIC_PASSIVE_MATCH_CHECKS count={checks}",flush=True)
   ready_ms=(now()-t0)/1e6 if matched==target else None
+  quic_connected=0
+  quic_ready_ms=None
   if ready_ms is not None:
    print(f"PUBLIC_DISCOVERY_READY elapsed_ms={ready_ms:.3f}",flush=True)
-   warm_until=time.monotonic()+0.5
-   while time.monotonic()<warm_until:
+   # A resolved DemandKey is not a connected QUIC session. This explicit
+   # barrier removes the fixed 500ms assumption from delivery benchmarking.
+   session_deadline=time.monotonic()+(30 if a.nodes>=200 else 15)
+   while time.monotonic()<session_deadline:
     transport.poll()
-    time.sleep(.0005)
+    quic_connected=transport.session_count()
+    if quic_connected==target:break
+    time.sleep(.002)
+   if quic_connected!=target:
+    print(f"PUBLIC_QUIC_NOT_READY connected={quic_connected} expected={target}",flush=True)
+    return 5
+   quic_ready_ms=(now()-t0)/1e6
+   print(f"PUBLIC_QUIC_READY elapsed_ms={quic_ready_ms:.3f}",flush=True)
    for i in range(1,a.count+1):
     sent=ctx.publish_raw(TYPE,b"D"+struct.pack("<Q",i)+b"A"*247,RESOURCE)
     transport.poll()
@@ -118,7 +129,7 @@ def main():
   if a.completion_file:
    # Shared benchmark working directory is mounted identically in netns.
    Path(a.completion_file).write_text("finished\n")
-  print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,matched=matched,expected=target,ready_ms=ready_ms)),flush=True)
+  print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,matched=matched,expected=target,ready_ms=ready_ms,quic_ready_ms=quic_ready_ms,quic_connected=quic_connected)),flush=True)
   return 0 if matched==target else 4
 if __name__=="__main__":
  try:sys.exit(main())
