@@ -120,19 +120,38 @@ def zenoh_run(args,collector):
                 observe(collector,args.role,
                         time.monotonic()+args.lifetime_ms/1000,args.completion_file)
             return dict(matched=None,ready_ms=None,
+                        connected_peer_links=len(session.info.peers_zid()),
                         match_semantics="receiver-side all-data acceptance")
         with session.declare_publisher(topic) as writer:
-            elapsed,status=sender_run(args,lambda:bool(writer.matching_status))
-            if elapsed is None:return dict(matched=None,ready_ms=None,
-                                            match_semantics="zenoh boolean any match")
+            # Unlike Publisher.matching_status (Boolean, ANY subscriber),
+            # SessionInfo.peers_zid() returns the actual connected peer IDs.
+            # In peer mesh mode all N-1 other processes, including the
+            # negative-interest node, are expected to be directly connected.
+            # This is a *transport* barrier, not a subscription-match count.
+            target=args.nodes-1
+            progress={"next":time.monotonic()+5}
+            def connected():
+                count=len(session.info.peers_zid())
+                if time.monotonic()>=progress["next"]:
+                    print(f"ZENOH_CONNECTED_PEERS count={count} expected={target}",
+                          flush=True)
+                    progress["next"]=time.monotonic()+5
+                return count>=target
+            elapsed,ready=sender_run(args,connected)
+            peers=len(session.info.peers_zid())
+            if elapsed is None:
+                return dict(matched=None,ready_ms=None,
+                            connected_peer_links=peers,expected_peer_links=target,
+                            match_semantics="Zenoh exact N-1 connected peer IDs, no subscription count")
             time.sleep(.5)
             for seq in range(1,args.count+1):
                 writer.put(payload(seq))
                 time.sleep(.1)
             time.sleep(1.5)
         return dict(matched=None,ready_ms=elapsed,
-                    matching_any=bool(status),
-                    match_semantics="zenoh boolean any match, NOT N-2 count")
+                    connected_peer_links=peers,expected_peer_links=target,
+                    all_peer_links_ready=bool(ready),
+                    match_semantics="Zenoh exact N-1 connected peer IDs, no subscription count")
 
 def dds_run(args,collector):
     from dataclasses import dataclass
