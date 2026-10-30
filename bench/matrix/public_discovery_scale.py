@@ -41,9 +41,9 @@ def apply_profile(nodes, profile, output):
         (evidence / f"{namespace}-qdisc.txt").write_text(actual)
         if "qdisc netem" not in actual or "delay 10ms" not in actual:
             raise RuntimeError(f"{namespace}: required delay absent: {actual}")
-        if loss and not re.search(r"\\bloss\\s+" +
+        if loss and not re.search(r"\bloss\s+" +
                                   re.escape(loss[:-1]) +
-                                  r"(?:\\.0+)?%", actual):
+                                  r"(?:\.0+)?%", actual):
             raise RuntimeError(f"{namespace}: required loss absent: {actual}")
 
 def namespace_pids(ns):
