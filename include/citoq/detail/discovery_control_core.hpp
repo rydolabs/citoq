@@ -33,6 +33,7 @@ struct DiscoveryControlStats {
     std::size_t expired_coordinators{0};
     std::size_t snapshot_retries{0};
     std::size_t route_retries{0};
+    std::size_t route_anti_entropy_probes{0};
 };
 
 class DiscoveryControlCore {
@@ -75,6 +76,7 @@ public:
         const DemandSummaryAnnouncement& message,
         std::uint64_t now_ms) {
         std::vector<ControlAction> actions;
+        last_observed_now_ms_ = now_ms;
 
         if (message.coordinator == self_) {
             return actions;
@@ -104,6 +106,7 @@ public:
                 message.coordinator);
             unconfirmed_routes_.erase(message.coordinator);
             next_route_retry_ms_.erase(message.coordinator);
+            next_audit_ms_.erase(message.coordinator);
         }
 
         if (!host_.needs_remote_snapshot(
@@ -111,6 +114,10 @@ public:
                 message.stamp)) {
 #if !defined(CITOQ_DISCOVERY_RETRY) || CITOQ_DISCOVERY_RETRY
             retry_unconfirmed_routes(message.coordinator,
+                message.stamp.incarnation, now_ms, actions);
+#endif
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+            anti_entropy_confirmed_routes(message.coordinator,
                 message.stamp.incarnation, now_ms, actions);
 #endif
             return actions;
@@ -414,6 +421,9 @@ public:
             batch.coordinator][
                 batch.key] =
             batch.incarnation;
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+        next_audit_ms_[batch.coordinator] = last_observed_now_ms_ + 2400;
+#endif
         if (auto it = unconfirmed_routes_.find(batch.coordinator);
             it != unconfirmed_routes_.end()) {
             it->second.erase(batch.key);
@@ -442,6 +452,7 @@ public:
                 coordinator);
             unconfirmed_routes_.erase(coordinator);
             next_route_retry_ms_.erase(coordinator);
+            next_audit_ms_.erase(coordinator);
         }
 
         stats_.expired_coordinators +=
@@ -472,6 +483,39 @@ public:
     }
 
 private:
+#if defined(CITOQ_PLUS_DISCOVERY) && CITOQ_PLUS_DISCOVERY
+    // A+-inspired anti-entropy: periodically verify *only desired* DemandKey
+    // endpoint routes, not a full peer/destination membership catalogue.
+    // Existing CTR3/CTR5 request/response encoding remains unchanged.
+    void anti_entropy_confirmed_routes(
+        CoordinatorId coordinator,
+        std::uint64_t incarnation,
+        std::uint64_t now_ms,
+        std::vector<ControlAction>& actions) {
+        auto& due = next_audit_ms_[coordinator];
+        if (due == 0) {
+            due = now_ms + 2400 + (coordinator % 401);
+            return;
+        }
+        if (now_ms < due) return;
+        due = now_ms + 2400 + (coordinator % 401);
+        const auto it = requested_routes_.find(coordinator);
+        if (it == requested_routes_.end()) return;
+        std::size_t budget = 4;
+        for (const auto& [key, version] : it->second) {
+            if (budget == 0) break;
+            if (version != incarnation || !desired_routes_.contains(key)
+                || !host_.candidate_hosts(key).contains(coordinator)) continue;
+            const auto unconfirmed = unconfirmed_routes_.find(coordinator);
+            if (unconfirmed != unconfirmed_routes_.end() &&
+                unconfirmed->second.contains(key)) continue;
+            actions.push_back(route_request_action(coordinator, incarnation, key));
+            ++stats_.route_anti_entropy_probes;
+            --budget;
+        }
+    }
+#endif
+
     void retry_unconfirmed_routes(
         CoordinatorId coordinator,
         std::uint64_t incarnation,
@@ -681,6 +725,8 @@ private:
         std::unordered_set<InterestKey, InterestKeyHash>> unconfirmed_routes_;
     std::unordered_map<CoordinatorId, std::uint64_t> next_route_retry_ms_;
 
+    std::uint64_t last_observed_now_ms_{0};
+    std::unordered_map<CoordinatorId, std::uint64_t> next_audit_ms_;
     DiscoveryControlStats stats_;
 };
 
