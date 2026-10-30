@@ -246,6 +246,20 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
             publisher_text.count("stage=CONNECTED"))
         metrics["publisher_quic_closed_events"] = (
             publisher_text.count("stage=CONNECTION_CLOSED"))
+        metrics["publisher_transport_shutdown_events"] = (
+            publisher_text.count("stage=SHUTDOWN_TRANSPORT"))
+        metrics["publisher_peer_shutdown_events"] = (
+            publisher_text.count("stage=SHUTDOWN_PEER"))
+        metrics["publisher_deferred_queue_events"] = (
+            publisher_text.count("stage=DEFERRED_QUEUED"))
+        metrics["publisher_deferred_replay_events"] = (
+            publisher_text.count("stage=DEFERRED_REPLAY"))
+        metrics["publisher_deferred_reject_events"] = (
+            publisher_text.count("stage=DEFERRED_REJECTED_LIMIT"))
+        passive_checks = re.findall(
+            r"PUBLIC_PASSIVE_MATCH_CHECKS count=(\d+)", publisher_text)
+        metrics["publisher_passive_match_checks"] = (
+            int(passive_checks[-1]) if passive_checks else None)
         expected_config = (f"lease_ms={metrics['lease_ms']}" in publisher_text
                            and f"announce_ms={metrics['announce_ms']}" in publisher_text)
         metrics["runtime_configuration_verified"] = expected_config
