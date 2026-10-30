@@ -16,6 +16,10 @@ struct PosixUdpControlStats {
     std::size_t malformed_datagrams{0};
     std::size_t send_failures{0};
     std::size_t expired_coordinators{0};
+    std::size_t gossip_announcements_sent{0};
+    std::size_t gossip_hints_sent{0};
+    std::size_t gossip_hints_received{0};
+    std::size_t gossip_peers_learned{0};
 };
 
 class PosixUdpControlManager {
