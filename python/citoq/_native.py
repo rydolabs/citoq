@@ -184,6 +184,15 @@ _lib.citoq_context_has_demand.argtypes = [
 _lib.citoq_context_has_demand.restype = (
     ctypes.c_int)
 
+_lib.citoq_context_remote_match_count.argtypes = [
+    ctypes.c_void_p,
+    ctypes.c_uint64,
+    _CHARP,
+    ctypes.c_size_t,
+    ctypes.POINTER(ctypes.c_size_t),
+]
+_lib.citoq_context_remote_match_count.restype = ctypes.c_int
+
 _lib.citoq_context_advertise.argtypes = [
     ctypes.c_void_p,
     ctypes.c_uint64,
@@ -944,6 +953,19 @@ class Context:
 
         return bool(
             result.value)
+
+    def remote_match_count_raw(self, type_id: int, resource: str = "") -> int:
+        """Count resolved remote DemandKey destinations without transmitting.
+
+        This is route discovery only, not QUIC connectivity or application ACK.
+        Use on the native runtime's loop-owner thread.
+        """
+        raw, buffer = _text(resource)
+        count = ctypes.c_size_t()
+        _check(_lib.citoq_context_remote_match_count(
+            self._handle, int(type_id),
+            ctypes.cast(buffer, _CHARP), len(raw), ctypes.byref(count)))
+        return int(count.value)
 
     def advertise_raw(self, type_id: int, resource: str = "") -> None:
         raw, buffer = _text(resource)
