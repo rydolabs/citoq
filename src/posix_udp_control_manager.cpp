@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <span>
 #include <utility>
 #include <vector>
@@ -307,6 +309,15 @@ public:
 
         stats_.expired_coordinators +=
             expired;
+        if (expired != 0 && std::getenv("CITOQ_NATIVE_DIAGNOSTICS")) {
+            const auto* enabled = std::getenv("CITOQ_NATIVE_DIAGNOSTICS");
+            if (enabled[0] == '1' && enabled[1] == '\0') {
+                std::fprintf(stderr,
+                    "CITOQ_DIAG_LEASE_EXPIRED count=%zu now_ms=%llu\n",
+                    expired, static_cast<unsigned long long>(now_ms));
+                std::fflush(stderr);
+            }
+        }
         work += expired;
 
         return work;
