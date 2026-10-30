@@ -1,0 +1,33 @@
+name: CitoQ plus standalone discovery regression smoke
+on:
+  push:
+    branches: ['bench/citoq-plus-gossip-compare-*']
+    paths: ['.github/workflows/citoq-plus-core-smoke.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  discovery-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run header-only discovery tests in both modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++ --version
+          for plus in 0 1; do
+            echo "::group::CITOQ_PLUS_DISCOVERY=$plus"
+            g++ -std=c++20 -O1 -pthread -Iinclude \
+              "-DCITOQ_PLUS_DISCOVERY=$plus" \
+              tests/discovery_control_core_test.cpp \
+              -o "/tmp/citoq-control-$plus"
+            "/tmp/citoq-control-$plus"
+            g++ -std=c++20 -O1 -pthread -Iinclude \
+              "-DCITOQ_PLUS_DISCOVERY=$plus" \
+              src/posix_udp_control_manager.cpp \
+              tests/posix_udp_control_manager_test.cpp \
+              -o "/tmp/citoq-posix-$plus"
+            "/tmp/citoq-posix-$plus"
+            echo "::endgroup::"
+          done
