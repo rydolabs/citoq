@@ -62,6 +62,10 @@ class NativeRuntime:
         if self._poll_wait_fn is not None:
             self._poll_wait_fn.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
             self._poll_wait_fn.restype = ctypes.c_size_t
+        self._session_count_fn = getattr(self._lib, "citoq_native_session_count", None)
+        if self._session_count_fn is not None:
+            self._session_count_fn.argtypes = [ctypes.c_void_p]
+            self._session_count_fn.restype = ctypes.c_size_t
         self._lib.citoq_native_close.argtypes = [ctypes.c_void_p]
         self._options = _Options(
             coordinator, incarnation, destination,
@@ -91,6 +95,14 @@ class NativeRuntime:
         if self._poll_wait_fn is None:
             raise RuntimeError("poll_wait requires a newer native CitoQ runtime library")
         return int(self._poll_wait_fn(self._handle, max_wait_ms))
+
+    def session_count(self) -> int:
+        """Connected outbound QUIC sessions, not subscriber delivery ACKs."""
+        if not self._handle:
+            raise RuntimeError("Native runtime already closed")
+        if self._session_count_fn is None:
+            raise RuntimeError("session_count requires the updated native CitoQ library")
+        return int(self._session_count_fn(self._handle))
 
     def close(self) -> None:
         if self._handle:
