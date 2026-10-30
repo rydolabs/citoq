@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "bench/m26"))
 import m26_efficiency as net  # noqa: E402
 
 PROFILES = {"baseline": None, "netem_10ms_1pct": "1%", "netem_10ms_2pct": "2%"}
-LIMIT = 100
+LIMIT = 200
 
 
 def apply_profile(nodes, profile, output):
@@ -174,7 +174,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         ready_detected = False
         first_detected = False
         overall_deadline = time.monotonic() + min(
-            150, (discovery_ms + count*150 + 12000)/1000)
+            255, (max(discovery_ms, lifetime_ms) + count*150 + 18000)/1000)
         while time.monotonic() < overall_deadline:
             sender_text = count_markers(sender_log)
             if not ready_detected and "PUBLIC_DISCOVERY_READY" in sender_text:
@@ -302,7 +302,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--nodes", type=int, choices=(3,10,30,50,100), required=True)
+    parser.add_argument("--nodes", type=int, choices=(3,10,30,50,100,200), required=True)
     parser.add_argument("--engine",choices=("citoq","zenoh","cyclonedds"),required=True)
     parser.add_argument("--python",type=pathlib.Path,default=pathlib.Path(sys.executable))
     parser.add_argument("--profile", choices=tuple(PROFILES), required=True)
@@ -339,7 +339,9 @@ def main():
             "Readiness is all matching publishers plus every positive node receiving data; not mesh readiness.",
             "8 spaced 256-byte application frames per positive subscriber; not long-running high-throughput soak.",
             "No application delivery ACK; the receive gate inspects unique payload sequences.",
-            "Bridge veth RX counts all control and data bytes, not isolated discovery-only bytes."
+            "Bridge veth RX counts all control and data bytes, not isolated discovery-only bytes.",
+            "Zenoh matching-any is not equivalent to exact CitoQ/DDS matching-all; only receiver-side results and full-trial metrics are comparable.",
+            "CitoQ uses a preconfigured announcement target; the protocols differ in bootstrap assumptions."
         ],
     }
     (args.output/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
