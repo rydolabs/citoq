@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Public Context + native mTLS/QUIC multi-node readiness probe, not a cross-engine fair ranking."""
-import argparse,json,struct,sys,time
+import argparse,json,os,struct,sys,time
 from pathlib import Path
 import citoq
 from citoq.native_runtime import NativeRuntime
@@ -123,6 +123,19 @@ def main():
      print("PUBLIC_SEND_FAILED "+str(sent),flush=True)
      return 3
     time.sleep(.1)
+   if os.environ.get("CITOQ_RELIABLE_QUIC_MODE")=="1":
+    deadline=time.monotonic()+18
+    total=target*a.count
+    while time.monotonic()<deadline:
+     transport.poll()
+     if transport.reliable_acked_count()>=total and transport.reliable_pending_count()==0:
+      break
+     time.sleep(.001)
+    acked=transport.reliable_acked_count()
+    outstanding=transport.reliable_pending_count()
+    print(f"PUBLIC_RELIABLE_ACKED count={acked} expected={total} pending={outstanding}",flush=True)
+    if acked!=total or outstanding!=0:
+     return 6
    until=time.monotonic()+1.5
    while time.monotonic()<until:
     transport.poll();time.sleep(.0005)
