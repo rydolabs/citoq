@@ -40,6 +40,9 @@ CITOQ_NATIVE_API size_t citoq_native_poll_wait(
    Counts transport sessions, not application delivery acknowledgements. */
 CITOQ_NATIVE_API size_t citoq_native_session_count(
     citoq_native_runtime_t* runtime);
+/* Experimental mode: post-callback ACKs, zero for Best-effort mode. */
+CITOQ_NATIVE_API size_t citoq_native_reliable_acked_count(citoq_native_runtime_t* runtime);
+CITOQ_NATIVE_API size_t citoq_native_reliable_pending_count(citoq_native_runtime_t* runtime);
 CITOQ_NATIVE_API void citoq_native_close(citoq_native_runtime_t* runtime);
 #ifdef __cplusplus
 }
