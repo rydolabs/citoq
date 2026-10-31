@@ -66,6 +66,13 @@ class NativeRuntime:
         if self._session_count_fn is not None:
             self._session_count_fn.argtypes = [ctypes.c_void_p]
             self._session_count_fn.restype = ctypes.c_size_t
+        for key in ("acked", "pending"):
+            symbol = f"citoq_native_reliable_{key}_count"
+            fn = getattr(self._lib, symbol, None)
+            if fn is not None:
+                fn.argtypes = [ctypes.c_void_p]
+                fn.restype = ctypes.c_size_t
+            setattr(self, f"_reliable_{key}_fn", fn)
         self._lib.citoq_native_close.argtypes = [ctypes.c_void_p]
         self._options = _Options(
             coordinator, incarnation, destination,
@@ -103,6 +110,16 @@ class NativeRuntime:
         if self._session_count_fn is None:
             raise RuntimeError("session_count requires the updated native CitoQ library")
         return int(self._session_count_fn(self._handle))
+
+    def reliable_acked_count(self) -> int:
+        if not self._handle or self._reliable_acked_fn is None:
+            raise RuntimeError("Reliable ACK counter unavailable")
+        return int(self._reliable_acked_fn(self._handle))
+
+    def reliable_pending_count(self) -> int:
+        if not self._handle or self._reliable_pending_fn is None:
+            raise RuntimeError("Reliable pending counter unavailable")
+        return int(self._reliable_pending_fn(self._handle))
 
     def close(self) -> None:
         if self._handle:
