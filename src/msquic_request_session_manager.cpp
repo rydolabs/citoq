@@ -407,6 +407,20 @@ public:
                     std::memory_order_relaxed);
     }
 
+    std::size_t reliable_acked_count() const noexcept {
+#if defined(CITOQ_RELIABLE_QUIC) && CITOQ_RELIABLE_QUIC
+        return reliable_acked_;
+#else
+        return 0;
+#endif
+    }
+    std::size_t reliable_pending_count() const noexcept {
+#if defined(CITOQ_RELIABLE_QUIC) && CITOQ_RELIABLE_QUIC
+        return pending_ack_.size();
+#else
+        return 0;
+#endif
+    }
     std::uint16_t listen_port()
         const noexcept {
         return listen_port_;
@@ -2098,6 +2112,13 @@ completed_send_count()
             ? impl_->
                   completed_send_count()
             : 0;
+}
+
+std::size_t MsQuicRequestSessionManager::reliable_acked_count() const noexcept {
+    return impl_ ? impl_->reliable_acked_count() : 0;
+}
+std::size_t MsQuicRequestSessionManager::reliable_pending_count() const noexcept {
+    return impl_ ? impl_->reliable_pending_count() : 0;
 }
 
 std::uint16_t
