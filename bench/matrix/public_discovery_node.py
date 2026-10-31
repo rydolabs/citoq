@@ -69,7 +69,13 @@ def main():
    while time.monotonic()<until:
     transport.poll()
     if a.role=="subscriber" and len(seen)==a.count:
-     # Observe a bounded grace period for duplicate deliveries.
+     # Keep the authenticated QUIC session alive until the publisher has
+     # completed *all* data sends / application ACKs. Otherwise a 200ms
+     # subscriber exit can artificially destroy the final ACK under loss.
+     # Apply the identical termination policy to Best-effort and Reliable.
+     if a.completion_file and not Path(a.completion_file).exists():
+      time.sleep(.0005)
+      continue
      grace=time.monotonic()+.2
      while time.monotonic()<grace:
       transport.poll();time.sleep(.0005)
