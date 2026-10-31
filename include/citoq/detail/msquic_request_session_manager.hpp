@@ -87,6 +87,9 @@ public:
     std::size_t completed_send_count()
         const noexcept;
 
+    std::size_t reliable_acked_count() const noexcept;
+    std::size_t reliable_pending_count() const noexcept;
+
     std::uint16_t listen_port()
         const noexcept;
 
