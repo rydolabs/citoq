@@ -1,4 +1,5 @@
 #include <citoq/detail/msquic_request_session_manager.hpp>
+#include <citoq/detail/quic_reliable_delivery.hpp>
 
 #include <msquic.h>
 
@@ -12,6 +13,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <random>
 #include <mutex>
 #include <span>
 #include <string>
@@ -315,6 +317,9 @@ public:
         // ready, and deadlines advance from the same loop-owner poll path.
 #if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
         drop_expired_deferred();
+#endif
+#if defined(CITOQ_RELIABLE_QUIC) && CITOQ_RELIABLE_QUIC
+        retry_unacked();
 #endif
         runtime_.request_network()
             .progress();
@@ -845,10 +850,100 @@ private:
     }
 #endif
 
+#if defined(CITOQ_RELIABLE_QUIC) && CITOQ_RELIABLE_QUIC
+    struct AwaitingAck {
+        DestinationId destination{};
+        std::vector<std::uint8_t> frame;
+        std::chrono::steady_clock::time_point next_retry{};
+        std::chrono::steady_clock::time_point expires{};
+        unsigned attempts{0};
+    };
+    bool prepare_reliable(DestinationId destination,
+                          std::vector<std::uint8_t>& bytes) {
+        if (!quic_reliable::magic(bytes,'D')) return true;
+        constexpr std::size_t kMaxFrames=4096;
+        constexpr std::size_t kMaxBytes=16u*1024u*1024u;
+        if (pending_ack_.size()>=kMaxFrames ||
+            bytes.size()>kMaxBytes-pending_ack_bytes_) {
+            ++reliable_rejected_;
+            return false;
+        }
+        if (next_reliable_sequence_==0) {
+            ++reliable_rejected_;
+            return false;
+        }
+        const auto sequence=next_reliable_sequence_++;
+        auto wire=quic_reliable::encode_data(
+            sender_epoch_, sequence, bytes);
+        const auto now=std::chrono::steady_clock::now();
+        AwaitingAck record{
+            destination, wire,
+            now+std::chrono::milliseconds(650),
+            now+std::chrono::seconds(14), 0};
+        pending_ack_bytes_+=wire.size();
+        pending_ack_.emplace(sequence,std::move(record));
+        bytes=std::move(wire);
+        return true;
+    }
+    void accept_ack(DestinationId destination,
+                    const quic_reliable::Ack& ack) {
+        if (ack.epoch!=sender_epoch_) return;
+        const auto it=pending_ack_.find(ack.sequence);
+        if (it==pending_ack_.end() || it->second.destination!=destination)
+            return;
+        pending_ack_bytes_-=it->second.frame.size();
+        pending_ack_.erase(it);
+        ++reliable_acked_;
+    }
+    void retry_unacked() {
+        const auto now=std::chrono::steady_clock::now();
+        std::size_t budget=64;
+        for (auto it=pending_ack_.begin();it!=pending_ack_.end();) {
+            auto& record=it->second;
+            if (now>=record.expires || record.attempts>=6) {
+                pending_ack_bytes_-=record.frame.size();
+                ++reliable_expired_;
+                it=pending_ack_.erase(it);
+                continue;
+            }
+            if (budget && now>=record.next_retry) {
+                auto out=outbound_.find(record.destination);
+                if (out!=outbound_.end() && out->second->handle &&
+                    out->second->connected.load(std::memory_order_acquire)) {
+                    --budget;
+                    send_packet(record.destination,record.frame,true);
+                    ++record.attempts;
+                    ++reliable_retries_;
+                    const auto ms=std::min<unsigned>(3200,650u << 
+                        std::min<unsigned>(record.attempts,2));
+                    record.next_retry=now+std::chrono::milliseconds(ms);
+                } else {
+                    record.next_retry=now+std::chrono::milliseconds(250);
+                }
+            }
+            ++it;
+        }
+        if (diagnostics_ && now>=next_reliable_stats_) {
+            next_reliable_stats_=now+std::chrono::seconds(2);
+            std::fprintf(stderr,
+                "CITOQ_RELIABLE_METRICS pending=%zu acked=%zu retries=%zu expired=%zu rejected=%zu duplicates=%zu\n",
+                pending_ack_.size(),reliable_acked_,reliable_retries_,
+                reliable_expired_,reliable_rejected_,reliable_duplicates_);
+            std::fflush(stderr);
+        }
+    }
+#endif
     void send_packet(
         DestinationId destination,
         std::vector<std::uint8_t>
-            bytes) {
+            bytes
+#if defined(CITOQ_RELIABLE_QUIC) && CITOQ_RELIABLE_QUIC
+        , bool already_wrapped=false
+#endif
+    ) {
+#if defined(CITOQ_RELIABLE_QUIC) && CITOQ_RELIABLE_QUIC
+        if (!already_wrapped && !prepare_reliable(destination,bytes)) return;
+#endif
         const auto it =
             outbound_.find(
                 destination);
@@ -1169,6 +1264,45 @@ private:
             return;
         }
 
+#if defined(CITOQ_RELIABLE_QUIC) && CITOQ_RELIABLE_QUIC
+        if (stream->server_side &&
+            quic_reliable::magic(stream->received,'Y')) {
+            if (!options_.require_client_certificate) {
+                graceful_stream_finish(stream);
+                return;
+            }
+            try {
+                const auto data=quic_reliable::decode_data(stream->received);
+                if (dedup_.contains(data.epoch,data.sequence)) {
+                    ++reliable_duplicates_;
+                } else {
+                    // ACK is generated only after synchronous application
+                    // callback dispatch accepted the CTD1 payload.
+                    if (runtime_.request_network().receive_data(
+                            data.original_ctd1)==0) {
+                        graceful_stream_finish(stream);
+                        return;
+                    }
+                    dedup_.commit(data.epoch,data.sequence);
+                }
+                if (!send_on_stream(stream,quic_reliable::encode_ack(
+                        {data.epoch,data.sequence})))
+                    graceful_stream_finish(stream);
+            } catch (...) {
+                graceful_stream_finish(stream);
+            }
+            return;
+        }
+        if (!stream->server_side &&
+            quic_reliable::magic(stream->received,'K')) {
+            try {
+                const auto ack=quic_reliable::decode_ack(stream->received);
+                accept_ack(stream->connection->destination,ack);
+            } catch (...) {}
+            graceful_stream_finish(stream);
+            return;
+        }
+#endif
         // Data is admitted only when the listener required a validated
         // client certificate. Legacy unauthenticated RPC remains separate.
         if (stream->server_side &&
@@ -1785,6 +1919,23 @@ private:
         std::size_t> completed_sends_{
             0};
 
+#if defined(CITOQ_RELIABLE_QUIC) && CITOQ_RELIABLE_QUIC
+    std::uint64_t sender_epoch_{[] {
+        std::random_device rand;
+        std::uint64_t epoch=(std::uint64_t(rand())<<32) ^ rand();
+        return epoch ? epoch : std::uint64_t{1};
+    }()};
+    std::uint64_t next_reliable_sequence_{1};
+    std::unordered_map<std::uint64_t,AwaitingAck> pending_ack_;
+    quic_reliable::Dedup dedup_;
+    std::size_t pending_ack_bytes_{};
+    std::size_t reliable_acked_{};
+    std::size_t reliable_retries_{};
+    std::size_t reliable_expired_{};
+    std::size_t reliable_rejected_{};
+    std::size_t reliable_duplicates_{};
+    std::chrono::steady_clock::time_point next_reliable_stats_{};
+#endif
     std::size_t queue_report_threshold_{64};
 #if defined(CITOQ_STABILIZE_RECONNECT) && CITOQ_STABILIZE_RECONNECT
     std::unordered_map<DestinationId, std::deque<DeferredData>> deferred_;
