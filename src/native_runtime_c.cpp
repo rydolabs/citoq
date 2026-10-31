@@ -103,6 +103,15 @@ extern "C" size_t citoq_native_session_count(citoq_native_runtime_t* h) {
     try { return h->driver->session_count(); } catch (...) { return 0; }
 }
 
+extern "C" size_t citoq_native_reliable_acked_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->reliable_acked_count(); } catch (...) { return 0; }
+}
+extern "C" size_t citoq_native_reliable_pending_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->reliable_pending_count(); } catch (...) { return 0; }
+}
+
 extern "C" void citoq_native_close(citoq_native_runtime_t* h) {
     if (!h) return;
     try {
