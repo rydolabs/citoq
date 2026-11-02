@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Public Context + native mTLS/QUIC multi-node readiness probe, not a cross-engine fair ranking."""
 import argparse,json,struct,sys,time
+from pathlib import Path
 import citoq
 from citoq.native_runtime import NativeRuntime
 TYPE=424242
@@ -13,6 +14,8 @@ def main():
  p.add_argument("--nodes",type=int,required=True)
  p.add_argument("--count",type=int,default=8)
  p.add_argument("--lifetime-ms",type=int,default=16000)
+ p.add_argument("--discovery-timeout-ms",type=int,default=27000)
+ p.add_argument("--completion-file")
  p.add_argument("--ca",required=True)
  p.add_argument("--server-cert",required=True)
  p.add_argument("--server-key",required=True)
@@ -65,7 +68,19 @@ def main():
    until=time.monotonic()+a.lifetime_ms/1000
    while time.monotonic()<until:
     transport.poll()
-    if a.role=="subscriber" and len(seen)==a.count:break
+    if a.role=="subscriber" and len(seen)==a.count:
+     # Observe a bounded grace period for duplicate deliveries.
+     grace=time.monotonic()+.2
+     while time.monotonic()<grace:
+      transport.poll();time.sleep(.0005)
+     break
+    if a.role=="negative" and a.completion_file and Path(a.completion_file).exists():
+     # The publisher has finished. Keep watching an additional 300ms for
+     # incorrect late delivery to unrelated negative interests.
+     grace=time.monotonic()+.3
+     while time.monotonic()<grace:
+      transport.poll();time.sleep(.0005)
+     break
     if a.role=="negative" and time.monotonic()>until-2:break
     time.sleep(.0005)
    print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,received=len(seen),duplicates=duplicates,invalid=invalid,first_received_ns=first_received_ns)),flush=True)
@@ -74,7 +89,7 @@ def main():
   t0=now()
   target=a.nodes-2
   matched=0
-  until=time.monotonic()+27
+  until=time.monotonic()+a.discovery_timeout_ms/1000
   probe=0
   while time.monotonic()<until:
    transport.poll()
@@ -100,6 +115,9 @@ def main():
    until=time.monotonic()+1.5
    while time.monotonic()<until:
     transport.poll();time.sleep(.0005)
+  if a.completion_file:
+   # Shared benchmark working directory is mounted identically in netns.
+   Path(a.completion_file).write_text("finished\n")
   print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,matched=matched,expected=target,ready_ms=ready_ms)),flush=True)
   return 0 if matched==target else 4
 if __name__=="__main__":
