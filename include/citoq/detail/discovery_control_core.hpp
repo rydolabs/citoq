@@ -398,7 +398,7 @@ public:
         batch.incarnation =
             incarnation_;
         batch.key = request.key;
-        batch.version = route_version;
+        batch.version = request.supports_route_version ? route_version : 0;
         batch.endpoints.assign(
             endpoints.begin(),
             endpoints.end());
@@ -676,7 +676,8 @@ private:
                 RouteRequest{
                     coordinator,
                     incarnation,
-                    key})};
+                    key,
+                    pending_route_versions_[coordinator][key] != 0})};
     }
 
     void request_routes_for_key(
