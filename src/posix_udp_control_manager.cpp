@@ -246,6 +246,10 @@ public:
         work +=
             flush_lifecycle();
 
+        // Advance pending Snapshot/Route requests even with no incoming
+        // Announcement. Repeated sends do not mark the request complete.
+        work += send_actions(udp_.poll_retries(now_ms));
+
         const auto expired =
             udp_.expire(now_ms);
 
@@ -282,13 +286,12 @@ public:
     std::optional<std::uint64_t>
     next_announcement_ms()
         const noexcept {
-        if (
-            fd_ < 0 ||
-            targets_.empty()) {
-            return std::nullopt;
-        }
-
-        return next_announcement_ms_;
+        if (fd_ < 0) return std::nullopt;
+        auto deadline = udp_.next_retry_ms();
+        if (!targets_.empty() &&
+            (!deadline || next_announcement_ms_ < *deadline))
+            deadline = next_announcement_ms_;
+        return deadline;
     }
 
     const PosixUdpControlStats&
