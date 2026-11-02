@@ -226,6 +226,37 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
             and metrics["negative_received"] == 0)
     except Exception as exc:
         metrics["error"] = str(exc)
+        # Preserve the strict failure result, but capture process state before
+        # cleanup kills remaining workers. A timeout alone cannot distinguish
+        # missing Discovery matches from stalled data delivery or shutdown.
+        states = []
+        for index, proc in sorted(processes.items()):
+            role = ("publisher" if index == 0 else
+                    "negative" if index == nodes-1 else "subscriber")
+            log = folder / f"node-{index:03d}-{role}.log"
+            output = count_markers(log)
+            exit_code = proc.poll()
+            states.append({
+                "index": index, "role": role, "exit": exit_code,
+                "alive_at_failure": exit_code is None,
+                "receiver_ready": "RECEIVER_READY" in output,
+                "publisher_discovery_ready": "PUBLIC_DISCOVERY_READY" in output,
+                "first_data": "BENCH_FIRST_DATA" in output,
+                "node_result": parse_node(log),
+                "log_tail": output.splitlines()[-12:],
+            })
+        (folder / "failure_process_state.json").write_text(
+            json.dumps(states, indent=2) + "\n")
+        metrics["failure_alive_count"] = sum(
+            x["alive_at_failure"] for x in states)
+        metrics["failure_missing_node_result_count"] = sum(
+            not x["node_result"] for x in states)
+        metrics["failure_publisher_discovery_ready"] = any(
+            x["publisher_discovery_ready"] for x in states
+            if x["role"] == "publisher")
+        metrics["failure_positive_first_data_count"] = sum(
+            x["first_data"] for x in states
+            if x["role"] == "subscriber")
     finally:
         # Always kill the *real namespace workers*, not only sudo wrappers.
         # This matters when a child detaches from its wrapper process group.
