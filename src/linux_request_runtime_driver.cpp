@@ -344,6 +344,13 @@ outstanding_send_count()
     return quic_.outstanding_send_count();
 }
 
+std::size_t
+LinuxRequestRuntimeDriver::
+dropped_send_count()
+    const noexcept {
+    return quic_.dropped_send_count();
+}
+
 const PosixUdpControlStats&
 LinuxRequestRuntimeDriver::
 control_stats()
