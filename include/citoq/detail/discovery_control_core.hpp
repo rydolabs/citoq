@@ -109,6 +109,8 @@ public:
             unconfirmed_routes_.erase(message.coordinator);
             next_route_retry_ms_.erase(message.coordinator);
             route_retry_attempts_.erase(message.coordinator);
+            applied_route_versions_.erase(message.coordinator);
+            pending_route_versions_.erase(message.coordinator);
         }
 
         if (!host_.needs_remote_snapshot(
@@ -262,6 +264,10 @@ public:
         for (auto& [coordinator, pending] : unconfirmed_routes_) {
             pending.erase(key);
         }
+        for (auto& [coordinator, versions] : applied_route_versions_)
+            versions.erase(key);
+        for (auto& [coordinator, versions] : pending_route_versions_)
+            versions.erase(key);
         for (auto requested_it =
                  requested_routes_.begin();
              requested_it !=
@@ -354,7 +360,8 @@ public:
     ControlAction on_route_request(
         const RouteRequest& request,
         std::span<const RouteEndpoint>
-            endpoints) const {
+            endpoints,
+        std::uint64_t route_version = 0) const {
         if (
             request.coordinator != self_ ||
             request.incarnation !=
@@ -376,6 +383,7 @@ public:
         batch.incarnation =
             incarnation_;
         batch.key = request.key;
+        batch.version = route_version;
         batch.endpoints.assign(
             endpoints.begin(),
             endpoints.end());
@@ -385,6 +393,32 @@ public:
             self_,
             encode_route_batch(
                 batch)};
+    }
+
+    // CTV1 advertises per-Key endpoint changes without transporting the
+    // endpoint set on every periodic Announcement. Only a new version
+    // of a currently desired/matched Key triggers a RouteRequest.
+    ControlAction on_route_version(
+        const RouteVersionAnnouncement& message) {
+        if (!desired_routes_.contains(message.key) ||
+            !host_.coordinator_is_current(
+                message.coordinator, message.incarnation) ||
+            !host_.candidate_hosts(message.key).contains(
+                message.coordinator))
+            return {};
+        const auto current = applied_route_versions_[message.coordinator]
+            [message.key];
+        if (message.version <= current) return {};
+        auto& target = pending_route_versions_[message.coordinator]
+            [message.key];
+        if (target >= message.version) return {};
+        target = message.version;
+        requested_routes_[message.coordinator][message.key] =
+            message.incarnation;
+        unconfirmed_routes_[message.coordinator].insert(message.key);
+        arm_route_retry(message.coordinator);
+        return route_request_action(
+            message.coordinator, message.incarnation, message.key);
     }
 
     bool on_route_batch(
@@ -403,6 +437,14 @@ public:
             return false;
         }
 
+        const auto applied = applied_route_versions_[batch.coordinator]
+            [batch.key];
+        const auto targeted = pending_route_versions_[batch.coordinator]
+            [batch.key];
+        if (batch.version < applied || batch.version < targeted) {
+            ++stats_.stale_packets;
+            return false;
+        }
         std::vector<DestinationId>
             destinations;
         destinations.reserve(
@@ -424,6 +466,9 @@ public:
             batch.coordinator][
                 batch.key] =
             batch.incarnation;
+        applied_route_versions_[batch.coordinator][batch.key] =
+            batch.version;
+        pending_route_versions_[batch.coordinator].erase(batch.key);
         if (auto it = unconfirmed_routes_.find(batch.coordinator);
             it != unconfirmed_routes_.end()) {
             it->second.erase(batch.key);
@@ -454,6 +499,8 @@ public:
             unconfirmed_routes_.erase(coordinator);
             next_route_retry_ms_.erase(coordinator);
             route_retry_attempts_.erase(coordinator);
+            applied_route_versions_.erase(coordinator);
+            pending_route_versions_.erase(coordinator);
         }
 
         stats_.expired_coordinators +=
@@ -767,6 +814,12 @@ private:
     std::unordered_map<CoordinatorId, std::uint64_t> next_route_retry_ms_;
     std::unordered_map<CoordinatorId, std::uint32_t> route_retry_attempts_;
     std::uint64_t last_now_ms_{};
+    using RouteVersionMap = std::unordered_map<
+        InterestKey, std::uint64_t, InterestKeyHash>;
+    std::unordered_map<CoordinatorId, RouteVersionMap>
+        applied_route_versions_;
+    std::unordered_map<CoordinatorId, RouteVersionMap>
+        pending_route_versions_;
 
     DiscoveryControlStats stats_;
 };
