@@ -87,8 +87,21 @@ int main() {
     pages=c2.on_snapshot_batch(citoq::decode_snapshot_batch(first.bytes));
     assert(pages.size()==1 && snapshot(pages[0]).offset==32);
     assert(view.candidate_hosts({7,1,9}).empty());
-    // Drop page 32 and recover without another Announcement.
+    // Corrupt the final page with a duplicate Key from page zero.
+    // The partial snapshot MUST remain invisible and retry from offset 0.
+    auto corrupt=p2.on_snapshot_request(snapshot(pages[0]));
+    auto bad=citoq::decode_snapshot_batch(corrupt.bytes);
+    bad.keys[0]=citoq::decode_snapshot_batch(first.bytes).keys[0];
+    assert(c2.on_snapshot_batch(bad).empty());
+    assert(view.candidate_hosts({7,1,9}).empty());
     pages=c2.poll_retries(5300);
+    assert(pages.size()==1 && snapshot(pages[0]).offset==0);
+    auto retried_first=p2.on_snapshot_request(snapshot(pages[0]));
+    pages=c2.on_snapshot_batch(
+        citoq::decode_snapshot_batch(retried_first.bytes));
+    assert(pages.size()==1 && snapshot(pages[0]).offset==32);
+    // Drop this final page again and recover solely via the timer.
+    pages=c2.poll_retries(5600);
     assert(pages.size()==1 && snapshot(pages[0]).offset==32);
     auto last=p2.on_snapshot_request(snapshot(pages[0]));
     pages=c2.on_snapshot_batch(citoq::decode_snapshot_batch(last.bytes));
