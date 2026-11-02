@@ -83,6 +83,9 @@ jobs:
 
       - name: Strict public Context discovery, verified netem and exact per-node delivery
         shell: bash
+        # Experimental A/B: same exact-delivery PASS gate, no publisher probe storm.
+        env:
+          CITOQ_BENCH_PASSIVE_READY: '1'
         run: |
           set -euo pipefail
           python3 -m py_compile bench/matrix/public_discovery_scale.py bench/matrix/public_discovery_node.py bench/m26/m26_efficiency.py
