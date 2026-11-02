@@ -6,6 +6,7 @@ on:
       - 'bench/matrix/**'
       - '.github/workflows/benchmark-discovery-200netns.yml'
   workflow_dispatch:
+# Full-matrix verification rerun (2026-11-02); scenarios and pass/fail gates unchanged.
 permissions:
   contents: read
 jobs:
