@@ -40,6 +40,8 @@ struct RouteRequest {
     CoordinatorId coordinator{};
     std::uint64_t incarnation{};
     InterestKey key{};
+    // CTR7 opts into versioned CTR6; CTR3 stays compatible with old peers.
+    bool supports_route_version{};
 };
 
 struct RouteEndpoint {
@@ -569,7 +571,7 @@ encode_route_request(
     demand_control_detail::write_magic(
         out,
         'R',
-        '3');
+        message.supports_route_version ? '7' : '3');
     demand_control_detail::write_u64(
         out,
         message.coordinator);
@@ -584,19 +586,17 @@ encode_route_request(
 
 inline RouteRequest decode_route_request(
     std::span<const std::uint8_t> bytes) {
-    demand_control_detail::check_magic(
-        bytes,
-        'R',
-        '3',
-        44);
-
-    if (bytes.size() != 44) {
+    if (bytes.size() != 44 ||
+        bytes[0] != 'C' || bytes[1] != 'T' ||
+        bytes[2] != 'R' ||
+        (bytes[3] != '3' && bytes[3] != '7')) {
         throw std::runtime_error(
-            "CitoQ demand control: invalid route request length");
+            "CitoQ demand control: invalid route request");
     }
 
     std::size_t pos = 4;
     RouteRequest message;
+    message.supports_route_version = bytes[3] == '7';
     message.coordinator =
         demand_control_detail::read_u64(
             bytes,
