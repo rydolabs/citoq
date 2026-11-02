@@ -337,6 +337,13 @@ completed_send_count()
         quic_.completed_send_count();
 }
 
+std::size_t
+LinuxRequestRuntimeDriver::
+outstanding_send_count()
+    const noexcept {
+    return quic_.outstanding_send_count();
+}
+
 const PosixUdpControlStats&
 LinuxRequestRuntimeDriver::
 control_stats()
