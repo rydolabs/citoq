@@ -253,6 +253,16 @@ public:
         return true;
     }
 
+    std::vector<UdpSend> poll_retries(std::uint64_t now_ms) {
+        std::vector<UdpSend> sends;
+        append_actions(control_.poll_retries(now_ms), {}, sends);
+        return sends;
+    }
+
+    std::optional<std::uint64_t> next_retry_ms() const noexcept {
+        return control_.next_retry_ms();
+    }
+
     std::size_t expire(
         std::uint64_t now_ms) {
         const auto expired =
