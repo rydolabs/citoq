@@ -2,6 +2,7 @@
 
 #include <citoq/detail/discovery_control_core.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -44,7 +45,9 @@ public:
           control_(
               host,
               self,
-              incarnation) {}
+              incarnation),
+          self_(self),
+          incarnation_(incarnation) {}
 
     std::vector<std::uint8_t>
     announcement(
@@ -57,11 +60,42 @@ public:
     }
 
     void set_local_route_endpoints(
-        std::span<const RouteEndpoint>
-            endpoints) {
-        local_route_endpoints_.assign(
-            endpoints.begin(),
-            endpoints.end());
+        std::span<const RouteEndpoint> endpoints) {
+        if (!same_endpoints(local_route_endpoints_, endpoints)) {
+            local_route_endpoints_.assign(endpoints.begin(), endpoints.end());
+            ++default_route_version_;
+            if (!default_route_version_) ++default_route_version_;
+        }
+    }
+
+    // Per-DemandKey override: no unrelated key needs to refresh its Route.
+    void set_local_route_endpoints_for_key(
+        const InterestKey& key,
+        std::span<const RouteEndpoint> endpoints) {
+        auto& current = key_route_endpoints_[key];
+        if (current.version &&
+            same_endpoints(current.endpoints, endpoints)) return;
+        current.endpoints.assign(endpoints.begin(), endpoints.end());
+        current.version = std::max(current.version,
+                                   default_route_version_) + 1;
+        if (!current.version) current.version = 1;
+    }
+
+    // CTV1 is a periodic version summary, not a full endpoint broadcast.
+    std::vector<std::vector<std::uint8_t>>
+    route_version_announcements() const {
+        std::vector<std::vector<std::uint8_t>> packets;
+        const auto keys = host_.local_snapshot();
+        packets.reserve(keys.size());
+        for (const auto& key : keys) {
+            const auto state = key_route_endpoints_.find(key);
+            const auto version = state == key_route_endpoints_.end()
+                ? default_route_version_ : state->second.version;
+            if (!version) continue;
+            packets.push_back(encode_route_version_announcement(
+                RouteVersionAnnouncement{self_, incarnation_, key, version}));
+        }
+        return packets;
     }
 
     std::vector<UdpSend>
@@ -127,6 +161,15 @@ public:
             return sends;
         }
 
+        if (family == 'V' && version == '1') {
+            const auto message = decode_route_version_announcement(bytes);
+            const auto* known = control_endpoint(message.coordinator);
+            if (known && known->ipv4 == source.ipv4)
+                append_action(control_.on_route_version(message),
+                              source, sends);
+            return sends;
+        }
+
         if (
             family == 'Q' &&
             version == '1') {
@@ -165,11 +208,15 @@ public:
         if (
             family == 'R' &&
             version == '3') {
-            const auto action =
-                control_.on_route_request(
-                    decode_route_request(
-                        bytes),
-                    local_route_endpoints_);
+            const auto request = decode_route_request(bytes);
+            const auto override = key_route_endpoints_.find(request.key);
+            const bool selected = override != key_route_endpoints_.end();
+            const auto& endpoints = selected
+                ? override->second.endpoints : local_route_endpoints_;
+            const auto version_number = selected
+                ? override->second.version : default_route_version_;
+            const auto action = control_.on_route_request(
+                request, endpoints, version_number);
             append_action(
                 action,
                 source,
@@ -181,7 +228,8 @@ public:
             family == 'R' &&
             (
                 version == '4' ||
-                version == '5'
+                version == '5' ||
+                version == '6'
             )) {
             const auto batch =
                 decode_route_batch(
@@ -365,6 +413,18 @@ public:
     }
 
 private:
+    static bool same_endpoints(
+        std::span<const RouteEndpoint> a,
+        std::span<const RouteEndpoint> b) {
+        if (a.size() != b.size()) return false;
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            if (a[i].destination != b[i].destination ||
+                a[i].data_port != b[i].data_port ||
+                a[i].quic_port != b[i].quic_port) return false;
+        }
+        return true;
+    }
+
     void append_actions(
         const std::vector<ControlAction>& actions,
         UdpEndpoint source,
@@ -568,6 +628,15 @@ private:
 
     std::vector<RouteEndpoint>
         local_route_endpoints_;
+    struct LocalRouteState {
+        std::vector<RouteEndpoint> endpoints;
+        std::uint64_t version{};
+    };
+    std::unordered_map<InterestKey, LocalRouteState, InterestKeyHash>
+        key_route_endpoints_;
+    std::uint64_t default_route_version_{};
+    CoordinatorId self_{};
+    std::uint64_t incarnation_{};
 
     std::unordered_map<
         CoordinatorId,
