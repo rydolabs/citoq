@@ -62,6 +62,14 @@ class NativeRuntime:
         if self._poll_wait_fn is not None:
             self._poll_wait_fn.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
             self._poll_wait_fn.restype = ctypes.c_size_t
+        # Counters are optional: retain support for older native libraries.
+        self._diagnostic_counters = {}
+        for field in ("session", "peer", "outstanding_send", "completed_send"):
+            fn = getattr(self._lib, f"citoq_native_{field}_count", None)
+            if fn is not None:
+                fn.argtypes = [ctypes.c_void_p]
+                fn.restype = ctypes.c_size_t
+                self._diagnostic_counters[field] = fn
         self._lib.citoq_native_close.argtypes = [ctypes.c_void_p]
         self._options = _Options(
             coordinator, incarnation, destination,
@@ -91,6 +99,13 @@ class NativeRuntime:
         if self._poll_wait_fn is None:
             raise RuntimeError("poll_wait requires a newer native CitoQ runtime library")
         return int(self._poll_wait_fn(self._handle, max_wait_ms))
+
+    def diagnostics(self) -> dict[str, int]:
+        """Owner-thread QUIC metrics, not proof of end-to-end receipt."""
+        if not self._handle:
+            raise RuntimeError("Native runtime already closed")
+        return {key: int(fn(self._handle))
+                for key, fn in self._diagnostic_counters.items()}
 
     def close(self) -> None:
         if self._handle:
