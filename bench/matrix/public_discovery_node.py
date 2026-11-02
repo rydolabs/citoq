@@ -1,12 +1,24 @@
 #!/usr/bin/env python3
 """Public Context + native mTLS/QUIC multi-node readiness probe, not a cross-engine fair ranking."""
 import argparse,json,struct,sys,time
+from contextlib import contextmanager
 from pathlib import Path
 import citoq
 from citoq.native_runtime import NativeRuntime
 TYPE=424242
 RESOURCE="robot_1"
 def now():return time.monotonic_ns()
+
+@contextmanager
+def observed_runtime(**opts):
+ print("BENCH_PHASE=native_open_begin",flush=True)
+ with NativeRuntime(**opts) as transport:
+  print("BENCH_PHASE=native_open_done",flush=True)
+  try:
+   yield transport
+  finally:
+   print("BENCH_PHASE=native_close_begin",flush=True)
+ print("BENCH_PHASE=native_close_done",flush=True)
 def main():
  p=argparse.ArgumentParser()
  p.add_argument("role",choices=("publisher","subscriber","negative"))
@@ -37,6 +49,16 @@ def main():
            announcement_ipv4=None if pub else "10.202.0.11",
            announcement_port=0 if pub else 47465)
  seen=set()
+ last_heartbeat=time.monotonic()
+ def heartbeat(transport,phase,**extra):
+  nonlocal last_heartbeat
+  current=time.monotonic()
+  if current-last_heartbeat<5:return
+  last_heartbeat=current
+  print("BENCH_PROGRESS="+json.dumps(dict(
+   role=a.role,index=a.index,phase=phase,
+   uptime_ns=now(),received=len(seen),
+   transport=transport.diagnostics(),**extra)),flush=True)
  first_received_ns=0
  duplicates=0
  invalid=0
@@ -60,7 +82,7 @@ def main():
     first_received_ns=now()
     print(f"BENCH_FIRST_DATA ns={first_received_ns}",flush=True)
    seen.add(seq)
- with NativeRuntime(**opts) as transport, citoq.Context("acme") as ctx:
+ with observed_runtime(**opts) as transport, citoq.Context("acme") as ctx:
   if not pub:
    sub_type=TYPE if a.role=="subscriber" else TYPE+10000
    ctx.subscribe_raw(sub_type,recv,RESOURCE)
@@ -68,6 +90,7 @@ def main():
    until=time.monotonic()+a.lifetime_ms/1000
    while time.monotonic()<until:
     transport.poll()
+    heartbeat(transport,"receiver_poll")
     if a.role=="subscriber" and len(seen)==a.count:
      # Observe a bounded grace period for duplicate deliveries.
      grace=time.monotonic()+.2
@@ -83,6 +106,7 @@ def main():
      break
     if a.role=="negative" and time.monotonic()>until-2:break
     time.sleep(.0005)
+   print("BENCH_PHASE=receiver_return transport="+json.dumps(transport.diagnostics()),flush=True)
    print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,received=len(seen),duplicates=duplicates,invalid=invalid,first_received_ns=first_received_ns)),flush=True)
    return 0 if (a.role=="negative" and len(seen)==0 or a.role=="subscriber" and len(seen)==a.count) and duplicates==0 and invalid==0 else 2
   ctx.advertise_raw(TYPE,RESOURCE)
@@ -93,6 +117,7 @@ def main():
   probe=0
   while time.monotonic()<until:
    transport.poll()
+   heartbeat(transport,"publisher_discovery",matched=matched,probes=probe)
    probe+=1
    matched=ctx.publish_raw(TYPE,b"P"+struct.pack("<Q",probe),RESOURCE)
    transport.poll()
@@ -101,23 +126,32 @@ def main():
   ready_ms=(now()-t0)/1e6 if matched==target else None
   if ready_ms is not None:
    print(f"PUBLIC_DISCOVERY_READY elapsed_ms={ready_ms:.3f}",flush=True)
+   print("BENCH_PHASE=publisher_ready probes="+str(probe)+" transport="+
+         json.dumps(transport.diagnostics()),flush=True)
    warm_until=time.monotonic()+0.5
    while time.monotonic()<warm_until:
     transport.poll()
     time.sleep(.0005)
    for i in range(1,a.count+1):
+    heartbeat(transport,"publisher_data",frame=i)
     sent=ctx.publish_raw(TYPE,b"D"+struct.pack("<Q",i)+b"A"*247,RESOURCE)
     transport.poll()
     if sent!=target:
      print("PUBLIC_SEND_FAILED "+str(sent),flush=True)
      return 3
     time.sleep(.1)
+   print("BENCH_PHASE=publisher_sent_all transport="+json.dumps(
+    transport.diagnostics()),flush=True)
    until=time.monotonic()+1.5
    while time.monotonic()<until:
-    transport.poll();time.sleep(.0005)
+    transport.poll()
+    heartbeat(transport,"publisher_drain")
+    time.sleep(.0005)
   if a.completion_file:
    # Shared benchmark working directory is mounted identically in netns.
    Path(a.completion_file).write_text("finished\n")
+  print("BENCH_PHASE=publisher_return transport="+json.dumps(
+   transport.diagnostics()),flush=True)
   print("NODE_RESULT="+json.dumps(dict(role=a.role,index=a.index,matched=matched,expected=target,ready_ms=ready_ms)),flush=True)
   return 0 if matched==target else 4
 if __name__=="__main__":
