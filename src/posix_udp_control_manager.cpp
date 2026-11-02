@@ -109,6 +109,7 @@ public:
         control_port_ =
             ntohs(bound.sin_port);
         next_announcement_ms_ = 0;
+        next_route_versions_ms_ = 0;
         return control_port_ != 0;
     }
 
@@ -170,6 +171,17 @@ public:
             next_announcement_ms_ =
                 now_ms +
                 interval_ms_;
+        }
+
+        // Periodic per-Key Endpoint versions are anti-entropy metadata,
+        // not Endpoint snapshots. Only mismatched versions cause a pull.
+        if (!targets_.empty() && now_ms >= next_route_versions_ms_) {
+            for (const auto& packet : udp_.route_version_announcements()) {
+                for (const auto& target : targets_) {
+                    if (send_bytes(target, packet)) ++work;
+                }
+            }
+            next_route_versions_ms_ = now_ms + 5000;
         }
 
         for (std::size_t i = 0;
@@ -246,6 +258,10 @@ public:
         work +=
             flush_lifecycle();
 
+        // Advance pending Snapshot/Route requests even with no incoming
+        // Announcement. Repeated sends do not mark the request complete.
+        work += send_actions(udp_.poll_retries(now_ms));
+
         const auto expired =
             udp_.expire(now_ms);
 
@@ -282,13 +298,15 @@ public:
     std::optional<std::uint64_t>
     next_announcement_ms()
         const noexcept {
-        if (
-            fd_ < 0 ||
-            targets_.empty()) {
-            return std::nullopt;
+        if (fd_ < 0) return std::nullopt;
+        auto deadline = udp_.next_retry_ms();
+        if (!targets_.empty()) {
+            if (!deadline || next_announcement_ms_ < *deadline)
+                deadline = next_announcement_ms_;
+            if (!deadline || next_route_versions_ms_ < *deadline)
+                deadline = next_route_versions_ms_;
         }
-
-        return next_announcement_ms_;
+        return deadline;
     }
 
     const PosixUdpControlStats&
@@ -390,6 +408,7 @@ private:
     std::uint32_t interval_ms_{150};
     std::uint64_t
         next_announcement_ms_{};
+    std::uint64_t next_route_versions_ms_{};
 
     std::vector<UdpEndpoint>
         targets_;

@@ -40,6 +40,8 @@ struct RouteRequest {
     CoordinatorId coordinator{};
     std::uint64_t incarnation{};
     InterestKey key{};
+    // CTR7 opts into versioned CTR6; CTR3 stays compatible with old peers.
+    bool supports_route_version{};
 };
 
 struct RouteEndpoint {
@@ -53,6 +55,15 @@ struct RouteBatch {
     std::uint64_t incarnation{};
     InterestKey key{};
     std::vector<RouteEndpoint> endpoints;
+    // Zero denotes legacy CTR4/CTR5; CTR6 carries a monotonic per-Key version.
+    std::uint64_t version{};
+};
+
+struct RouteVersionAnnouncement {
+    CoordinatorId coordinator{};
+    std::uint64_t incarnation{};
+    InterestKey key{};
+    std::uint64_t version{};
 };
 
 namespace demand_control_detail {
@@ -560,7 +571,7 @@ encode_route_request(
     demand_control_detail::write_magic(
         out,
         'R',
-        '3');
+        message.supports_route_version ? '7' : '3');
     demand_control_detail::write_u64(
         out,
         message.coordinator);
@@ -575,19 +586,17 @@ encode_route_request(
 
 inline RouteRequest decode_route_request(
     std::span<const std::uint8_t> bytes) {
-    demand_control_detail::check_magic(
-        bytes,
-        'R',
-        '3',
-        44);
-
-    if (bytes.size() != 44) {
+    if (bytes.size() != 44 ||
+        bytes[0] != 'C' || bytes[1] != 'T' ||
+        bytes[2] != 'R' ||
+        (bytes[3] != '3' && bytes[3] != '7')) {
         throw std::runtime_error(
-            "CitoQ demand control: invalid route request length");
+            "CitoQ demand control: invalid route request");
     }
 
     std::size_t pos = 4;
     RouteRequest message;
+    message.supports_route_version = bytes[3] == '7';
     message.coordinator =
         demand_control_detail::read_u64(
             bytes,
@@ -601,6 +610,38 @@ inline RouteRequest decode_route_request(
             bytes,
             pos);
     return message;
+}
+
+// Small per-DemandKey anti-entropy advertisement. This is NOT a full
+// Endpoint list: only a version mismatch triggers a new RouteRequest.
+inline std::vector<std::uint8_t>
+encode_route_version_announcement(const RouteVersionAnnouncement& value) {
+    if (!value.coordinator || !value.incarnation || !value.version)
+        throw std::invalid_argument("CitoQ route version: zero identity/version");
+    std::vector<std::uint8_t> out;
+    out.reserve(52);
+    demand_control_detail::write_magic(out, 'V', '1');
+    demand_control_detail::write_u64(out, value.coordinator);
+    demand_control_detail::write_u64(out, value.incarnation);
+    demand_control_detail::write_key(out, value.key);
+    demand_control_detail::write_u64(out, value.version);
+    return out;
+}
+
+inline RouteVersionAnnouncement
+decode_route_version_announcement(std::span<const std::uint8_t> bytes) {
+    demand_control_detail::check_magic(bytes, 'V', '1', 52);
+    if (bytes.size() != 52)
+        throw std::runtime_error("CitoQ route version: invalid length");
+    std::size_t pos = 4;
+    RouteVersionAnnouncement value;
+    value.coordinator = demand_control_detail::read_u64(bytes, pos);
+    value.incarnation = demand_control_detail::read_u64(bytes, pos);
+    value.key = demand_control_detail::read_key(bytes, pos);
+    value.version = demand_control_detail::read_u64(bytes, pos);
+    if (!value.coordinator || !value.incarnation || !value.version)
+        throw std::runtime_error("CitoQ route version: zero identity/version");
+    return value;
 }
 
 inline std::vector<std::uint8_t>
@@ -629,13 +670,13 @@ encode_route_batch(
     // was reserved in CTR4 now carries the QUIC port.
     std::vector<std::uint8_t> out;
     out.reserve(
-        48 +
+        48 + (message.version ? 8 : 0) +
         message.endpoints.size() * 12);
 
     demand_control_detail::write_magic(
         out,
         'R',
-        '5');
+        message.version ? '6' : '5');
     demand_control_detail::write_u64(
         out,
         message.coordinator);
@@ -652,6 +693,8 @@ encode_route_batch(
     demand_control_detail::write_u16(
         out,
         0);
+    if (message.version)
+        demand_control_detail::write_u64(out, message.version);
 
     for (const auto& endpoint :
          message.endpoints) {
@@ -678,7 +721,8 @@ inline RouteBatch decode_route_batch(
         bytes[2] != 'R' ||
         (
             bytes[3] != '4' &&
-            bytes[3] != '5'
+            bytes[3] != '5' &&
+            bytes[3] != '6'
         )) {
         throw std::runtime_error(
             "CitoQ demand control: invalid route batch");
@@ -686,6 +730,7 @@ inline RouteBatch decode_route_batch(
 
     const bool legacy_v4 =
         bytes[3] == '4';
+    const bool versioned_v6 = bytes[3] == '6';
 
     std::size_t pos = 4;
     RouteBatch message;
@@ -715,7 +760,7 @@ inline RouteBatch decode_route_batch(
         header_reserved != 0 ||
         count > kMaxRouteBatch ||
         bytes.size() !=
-            48 +
+            48 + (versioned_v6 ? 8 : 0) +
                 static_cast<std::size_t>(
                     count) *
                     12) {
@@ -723,6 +768,11 @@ inline RouteBatch decode_route_batch(
             "CitoQ demand control: invalid route batch");
     }
 
+    if (versioned_v6) {
+        message.version = demand_control_detail::read_u64(bytes, pos);
+        if (!message.version)
+            throw std::runtime_error("CitoQ demand control: zero CTR6 version");
+    }
     message.endpoints.reserve(count);
 
     for (std::uint16_t i = 0;

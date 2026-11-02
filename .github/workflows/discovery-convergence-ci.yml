@@ -1,0 +1,24 @@
+name: Discovery convergence C++ and Linux UDP regression
+on:
+  push:
+    branches: ['feat/discovery-convergence-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core-convergence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure and build full C++ regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-convergence -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+          cmake --build build-convergence --parallel 3
+      - name: Run all CTest including deterministic packet loss and 200-host exact convergence
+        shell: bash
+        run: |
+          set -euo pipefail
+          ctest --test-dir build-convergence --output-on-failure --parallel 2

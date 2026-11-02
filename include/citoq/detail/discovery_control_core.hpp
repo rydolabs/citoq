@@ -3,7 +3,9 @@
 #include <citoq/demand_control.hpp>
 #include <citoq/detail/host_runtime_core.hpp>
 
+#include <algorithm>
 #include <cstddef>
+#include <optional>
 #include <cstdint>
 #include <span>
 #include <unordered_map>
@@ -42,6 +44,7 @@ private:
         std::vector<InterestKey> keys;
         std::uint32_t next_offset{};
         std::uint64_t next_retry_ms{};
+        std::uint32_t retry_attempts{};
     };
 
     using RequestedRoutes =
@@ -75,6 +78,7 @@ public:
         const DemandSummaryAnnouncement& message,
         std::uint64_t now_ms) {
         std::vector<ControlAction> actions;
+        last_now_ms_ = now_ms;
 
         if (message.coordinator == self_) {
             return actions;
@@ -104,6 +108,9 @@ public:
                 message.coordinator);
             unconfirmed_routes_.erase(message.coordinator);
             next_route_retry_ms_.erase(message.coordinator);
+            route_retry_attempts_.erase(message.coordinator);
+            applied_route_versions_.erase(message.coordinator);
+            pending_route_versions_.erase(message.coordinator);
         }
 
         if (!host_.needs_remote_snapshot(
@@ -129,7 +136,9 @@ public:
             // not prove its earlier UDP snapshot reply was received.
             // Retry from the last verified page, never replay applied pages.
             if (now_ms >= pending_it->second.next_retry_ms) {
-                pending_it->second.next_retry_ms = now_ms + 300;
+                pending_it->second.next_retry_ms = now_ms +
+                    retry_delay(++pending_it->second.retry_attempts,
+                                message.coordinator ^ pending_it->second.next_offset);
                 ++stats_.snapshot_retries;
                 actions.push_back(snapshot_request_action(
                     message.coordinator, message.stamp,
@@ -145,7 +154,8 @@ public:
                 message.stamp,
                 {},
                 0,
-                now_ms + 300});
+                now_ms + 300,
+                0});
 
         actions.push_back(
             snapshot_request_action(
@@ -188,45 +198,62 @@ public:
             return actions;
         }
 
-        pending.keys.insert(
-            pending.keys.end(),
-            batch.keys.begin(),
-            batch.keys.end());
-
+        // Never expose a partial Snapshot. Reject duplicate/overlapping
+        // page contents and restart at offset zero after a bounded delay.
+        bool invalid =
+            batch.keys.size() > kMaxDemandSnapshotBatch ||
+            batch.offset > pending.stamp.key_count ||
+            batch.keys.size() >
+                pending.stamp.key_count - batch.offset ||
+            (batch.keys.empty() &&
+             batch.offset < pending.stamp.key_count);
+        if (!invalid) {
+            std::unordered_set<InterestKey, InterestKeyHash> seen(
+                pending.keys.begin(), pending.keys.end());
+            for (const auto& key : batch.keys) {
+                if (!seen.insert(key).second) {
+                    invalid = true;
+                    break;
+                }
+            }
+        }
+        if (invalid) {
+            ++stats_.stale_packets;
+            pending.keys.clear();
+            pending.next_offset = 0;
+            pending.next_retry_ms = last_now_ms_ + 300;
+            pending.retry_attempts = 0;
+            return actions;
+        }
+        pending.keys.insert(pending.keys.end(),
+                            batch.keys.begin(), batch.keys.end());
         pending.next_offset +=
-            static_cast<std::uint32_t>(
-                batch.keys.size());
-
-        if (
-            pending.next_offset <
-            pending.stamp.key_count) {
-            actions.push_back(
-                snapshot_request_action(
-                    batch.coordinator,
-                    pending.stamp,
-                    pending.next_offset));
+            static_cast<std::uint32_t>(batch.keys.size());
+        pending.next_retry_ms = last_now_ms_ + 300;
+        pending.retry_attempts = 0;
+        if (pending.next_offset < pending.stamp.key_count) {
+            actions.push_back(snapshot_request_action(
+                batch.coordinator, pending.stamp, pending.next_offset));
             return actions;
         }
-
-        const auto stamp =
-            pending.stamp;
-        auto keys =
-            std::move(pending.keys);
-        pending_.erase(
-            pending_it);
-
-        if (!host_.apply_remote_snapshot(
-                batch.coordinator,
-                stamp,
-                keys)) {
+        const auto stamp = pending.stamp;
+        bool applied = false;
+        try {
+            // RemoteDemandIndex validates before changing its inverse map.
+            applied = host_.apply_remote_snapshot(
+                batch.coordinator, stamp, pending.keys);
+        } catch (const std::invalid_argument&) {
+            ++stats_.stale_packets;
+            pending.keys.clear();
+            pending.next_offset = 0;
+            pending.next_retry_ms = last_now_ms_ + 300;
+            pending.retry_attempts = 0;
             return actions;
         }
-
+        if (!applied) return actions;
+        pending_.erase(pending_it);
         reconcile_routes(
-            batch.coordinator,
-            stamp.incarnation,
-            actions);
-
+            batch.coordinator, stamp.incarnation, actions);
         return actions;
     }
 
@@ -252,6 +279,10 @@ public:
         for (auto& [coordinator, pending] : unconfirmed_routes_) {
             pending.erase(key);
         }
+        for (auto& [coordinator, versions] : applied_route_versions_)
+            versions.erase(key);
+        for (auto& [coordinator, versions] : pending_route_versions_)
+            versions.erase(key);
         for (auto requested_it =
                  requested_routes_.begin();
              requested_it !=
@@ -344,7 +375,8 @@ public:
     ControlAction on_route_request(
         const RouteRequest& request,
         std::span<const RouteEndpoint>
-            endpoints) const {
+            endpoints,
+        std::uint64_t route_version = 0) const {
         if (
             request.coordinator != self_ ||
             request.incarnation !=
@@ -366,6 +398,7 @@ public:
         batch.incarnation =
             incarnation_;
         batch.key = request.key;
+        batch.version = request.supports_route_version ? route_version : 0;
         batch.endpoints.assign(
             endpoints.begin(),
             endpoints.end());
@@ -375,6 +408,32 @@ public:
             self_,
             encode_route_batch(
                 batch)};
+    }
+
+    // CTV1 advertises per-Key endpoint changes without transporting the
+    // endpoint set on every periodic Announcement. Only a new version
+    // of a currently desired/matched Key triggers a RouteRequest.
+    ControlAction on_route_version(
+        const RouteVersionAnnouncement& message) {
+        if (!desired_routes_.contains(message.key) ||
+            !host_.coordinator_is_current(
+                message.coordinator, message.incarnation) ||
+            !host_.candidate_hosts(message.key).contains(
+                message.coordinator))
+            return {};
+        const auto current = applied_route_versions_[message.coordinator]
+            [message.key];
+        if (message.version <= current) return {};
+        auto& target = pending_route_versions_[message.coordinator]
+            [message.key];
+        if (target >= message.version) return {};
+        target = message.version;
+        requested_routes_[message.coordinator][message.key] =
+            message.incarnation;
+        unconfirmed_routes_[message.coordinator].insert(message.key);
+        arm_route_retry(message.coordinator);
+        return route_request_action(
+            message.coordinator, message.incarnation, message.key);
     }
 
     bool on_route_batch(
@@ -393,6 +452,14 @@ public:
             return false;
         }
 
+        const auto applied = applied_route_versions_[batch.coordinator]
+            [batch.key];
+        const auto targeted = pending_route_versions_[batch.coordinator]
+            [batch.key];
+        if (batch.version < applied || batch.version < targeted) {
+            ++stats_.stale_packets;
+            return false;
+        }
         std::vector<DestinationId>
             destinations;
         destinations.reserve(
@@ -414,12 +481,16 @@ public:
             batch.coordinator][
                 batch.key] =
             batch.incarnation;
+        applied_route_versions_[batch.coordinator][batch.key] =
+            batch.version;
+        pending_route_versions_[batch.coordinator].erase(batch.key);
         if (auto it = unconfirmed_routes_.find(batch.coordinator);
             it != unconfirmed_routes_.end()) {
             it->second.erase(batch.key);
             if (it->second.empty()) {
                 unconfirmed_routes_.erase(it);
                 next_route_retry_ms_.erase(batch.coordinator);
+                route_retry_attempts_.erase(batch.coordinator);
             }
         }
 
@@ -442,6 +513,9 @@ public:
                 coordinator);
             unconfirmed_routes_.erase(coordinator);
             next_route_retry_ms_.erase(coordinator);
+            route_retry_attempts_.erase(coordinator);
+            applied_route_versions_.erase(coordinator);
+            pending_route_versions_.erase(coordinator);
         }
 
         stats_.expired_coordinators +=
@@ -472,6 +546,76 @@ public:
     }
 
 private:
+    // Request sends do not imply success; only a validated response does.
+    // Timer polling works without receiving a new UDP announcement.
+    static std::uint64_t retry_delay(
+        std::uint32_t attempts, std::uint64_t salt) noexcept {
+        const auto base = std::uint64_t{300}
+            << std::min(attempts, std::uint32_t{3});
+        if (attempts == 0) return base;
+        auto hash = salt ^ (0x9e3779b97f4a7c15ULL * attempts);
+        hash ^= hash >> 33;
+        hash *= 0xff51afd7ed558ccdULL;
+        hash ^= hash >> 33;
+        return base * (80 + hash % 41) / 100;
+    }
+
+public:
+    std::vector<ControlAction> poll_retries(
+        std::uint64_t now_ms) {
+        last_now_ms_ = now_ms;
+        std::vector<ControlAction> actions;
+#if !defined(CITOQ_DISCOVERY_RETRY) || CITOQ_DISCOVERY_RETRY
+        for (auto& [coordinator, pending] : pending_) {
+            if (now_ms < pending.next_retry_ms ||
+                !host_.coordinator_is_current(
+                    coordinator, pending.stamp.incarnation)) continue;
+            ++stats_.snapshot_retries;
+            actions.push_back(snapshot_request_action(
+                coordinator, pending.stamp, pending.next_offset));
+            pending.next_retry_ms = now_ms +
+                retry_delay(++pending.retry_attempts,
+                            coordinator ^ pending.next_offset);
+        }
+        for (const auto& [coordinator, pending] : unconfirmed_routes_) {
+            if (pending.empty()) continue;
+            const auto incarnation = host_.coordinator_incarnation(coordinator);
+            if (incarnation)
+                retry_unconfirmed_routes(
+                    coordinator, *incarnation, now_ms, actions);
+        }
+#endif
+        return actions;
+    }
+
+    std::optional<std::uint64_t> next_retry_ms() const noexcept {
+#if !defined(CITOQ_DISCOVERY_RETRY) || CITOQ_DISCOVERY_RETRY
+        std::optional<std::uint64_t> earliest;
+        for (const auto& [coordinator, state] : pending_) {
+            if (!earliest || state.next_retry_ms < *earliest)
+                earliest = state.next_retry_ms;
+        }
+        for (const auto& [coordinator, keys] : unconfirmed_routes_) {
+            if (keys.empty()) continue;
+            const auto it = next_route_retry_ms_.find(coordinator);
+            if (it == next_route_retry_ms_.end()) continue;
+            if (!earliest || it->second < *earliest)
+                earliest = it->second;
+        }
+        return earliest;
+#else
+        return std::nullopt;
+#endif
+    }
+
+private:
+    void arm_route_retry(CoordinatorId coordinator) {
+        if (!next_route_retry_ms_.contains(coordinator)) {
+            next_route_retry_ms_[coordinator] = last_now_ms_ + 300;
+            route_retry_attempts_[coordinator] = 0;
+        }
+    }
+
     void retry_unconfirmed_routes(
         CoordinatorId coordinator,
         std::uint64_t incarnation,
@@ -482,7 +626,8 @@ private:
             return;
         auto& next_retry = next_route_retry_ms_[coordinator];
         if (next_retry != 0 && now_ms < next_retry) return;
-        next_retry = now_ms + 300;
+        next_retry = now_ms +
+            retry_delay(++route_retry_attempts_[coordinator], coordinator);
         for (const auto& key : pending->second) {
             if (!desired_routes_.contains(key) ||
                 !host_.candidate_hosts(key).contains(coordinator))
@@ -531,7 +676,8 @@ private:
                 RouteRequest{
                     coordinator,
                     incarnation,
-                    key})};
+                    key,
+                    pending_route_versions_[coordinator][key] != 0})};
     }
 
     void request_routes_for_key(
@@ -566,6 +712,7 @@ private:
             requested[key] =
                 *incarnation;
             unconfirmed_routes_[coordinator].insert(key);
+            arm_route_retry(coordinator);
 
             actions.push_back(
                 route_request_action(
@@ -643,6 +790,7 @@ private:
             requested[key] =
                 incarnation;
             unconfirmed_routes_[coordinator].insert(key);
+            arm_route_retry(coordinator);
 
             actions.push_back(
                 route_request_action(
@@ -680,6 +828,14 @@ private:
         CoordinatorId,
         std::unordered_set<InterestKey, InterestKeyHash>> unconfirmed_routes_;
     std::unordered_map<CoordinatorId, std::uint64_t> next_route_retry_ms_;
+    std::unordered_map<CoordinatorId, std::uint32_t> route_retry_attempts_;
+    std::uint64_t last_now_ms_{};
+    using RouteVersionMap = std::unordered_map<
+        InterestKey, std::uint64_t, InterestKeyHash>;
+    std::unordered_map<CoordinatorId, RouteVersionMap>
+        applied_route_versions_;
+    std::unordered_map<CoordinatorId, RouteVersionMap>
+        pending_route_versions_;
 
     DiscoveryControlStats stats_;
 };
