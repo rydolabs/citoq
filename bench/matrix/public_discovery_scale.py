@@ -82,6 +82,8 @@ def launch(index, role, nodes, count, lifetime_ms, discovery_ms,
         "CITOQ_LIBRARY": str(ROOT / "build-benchmark/libcitoq.so"),
         "CITOQ_NATIVE_LIBRARY": str(ROOT / "build-benchmark/libcitoq_native.so"),
     }
+    if os.environ.get("CITOQ_BENCH_PASSIVE_READY") == "1":
+        env["CITOQ_BENCH_PASSIVE_READY"] = "1"
     args = [
         "sudo", "-n", "ip", "netns", "exec", ns, "env",
         *(f"{key}={value}" for key, value in env.items()),
@@ -122,6 +124,8 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         "topology": "one publisher; N-2 subscribers; one negative-interest node",
         "runner": "Linux netns + veth + Linux Bridge",
         "accepted": False,
+        "readiness_mode": ("session_count" if os.environ.get(
+            "CITOQ_BENCH_PASSIVE_READY") == "1" else "publish_probe"),
     }
     start = time.monotonic()
     try:
