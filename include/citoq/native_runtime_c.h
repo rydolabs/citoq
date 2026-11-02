@@ -42,6 +42,7 @@ CITOQ_NATIVE_API size_t citoq_native_session_count(citoq_native_runtime_t* runti
 CITOQ_NATIVE_API size_t citoq_native_peer_count(citoq_native_runtime_t* runtime);
 CITOQ_NATIVE_API size_t citoq_native_outstanding_send_count(citoq_native_runtime_t* runtime);
 CITOQ_NATIVE_API size_t citoq_native_completed_send_count(citoq_native_runtime_t* runtime);
+CITOQ_NATIVE_API size_t citoq_native_dropped_send_count(citoq_native_runtime_t* runtime);
 CITOQ_NATIVE_API void citoq_native_close(citoq_native_runtime_t* runtime);
 #ifdef __cplusplus
 }
