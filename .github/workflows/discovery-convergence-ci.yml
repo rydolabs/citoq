@@ -1,0 +1,31 @@
+name: Discovery convergence deterministic and Linux UDP regression
+on:
+  push:
+    branches: ['feat/discovery-convergence-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core-convergence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure and build C++ Discovery tests
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-convergence -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
+          cmake --build build-convergence --parallel 3 --target \
+            citoq_discovery_retry_timer_tests \
+            citoq_discovery_control_core_tests \
+            citoq_discovery_control_core_smoke \
+            citoq_udp_runtime_adapter_tests \
+            citoq_posix_udp_control_manager_tests \
+            citoq_demand_control_tests \
+            citoq_demand_summary_tests \
+            citoq_host_scale_200_tests
+      - name: Deterministic loss, stale-state, 200-host data structure tests
+        run: |
+          set -euo pipefail
+          ctest --test-dir build-convergence --output-on-failure \
+            -R '^citoq_(discovery_retry_timer_tests|discovery_control_core_tests|discovery_control_core_smoke|udp_runtime_adapter_tests|posix_udp_control_manager_tests|demand_control_tests|demand_summary_tests|host_scale_200_tests)$'
