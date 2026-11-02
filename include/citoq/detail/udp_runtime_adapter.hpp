@@ -207,7 +207,7 @@ public:
 
         if (
             family == 'R' &&
-            version == '3') {
+            (version == '3' || version == '7')) {
             const auto request = decode_route_request(bytes);
             const auto override = key_route_endpoints_.find(request.key);
             const bool selected = override != key_route_endpoints_.end();
