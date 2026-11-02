@@ -198,47 +198,62 @@ public:
             return actions;
         }
 
-        pending.keys.insert(
-            pending.keys.end(),
-            batch.keys.begin(),
-            batch.keys.end());
-
+        // Never expose a partial Snapshot. Reject duplicate/overlapping
+        // page contents and restart at offset zero after a bounded delay.
+        bool invalid =
+            batch.keys.size() > kMaxDemandSnapshotBatch ||
+            batch.offset > pending.stamp.key_count ||
+            batch.keys.size() >
+                pending.stamp.key_count - batch.offset ||
+            (batch.keys.empty() &&
+             batch.offset < pending.stamp.key_count);
+        if (!invalid) {
+            std::unordered_set<InterestKey, InterestKeyHash> seen(
+                pending.keys.begin(), pending.keys.end());
+            for (const auto& key : batch.keys) {
+                if (!seen.insert(key).second) {
+                    invalid = true;
+                    break;
+                }
+            }
+        }
+        if (invalid) {
+            ++stats_.stale_packets;
+            pending.keys.clear();
+            pending.next_offset = 0;
+            pending.next_retry_ms = last_now_ms_ + 300;
+            pending.retry_attempts = 0;
+            return actions;
+        }
+        pending.keys.insert(pending.keys.end(),
+                            batch.keys.begin(), batch.keys.end());
         pending.next_offset +=
-            static_cast<std::uint32_t>(
-                batch.keys.size());
+            static_cast<std::uint32_t>(batch.keys.size());
         pending.next_retry_ms = last_now_ms_ + 300;
         pending.retry_attempts = 0;
-
-        if (
-            pending.next_offset <
-            pending.stamp.key_count) {
-            actions.push_back(
-                snapshot_request_action(
-                    batch.coordinator,
-                    pending.stamp,
-                    pending.next_offset));
+        if (pending.next_offset < pending.stamp.key_count) {
+            actions.push_back(snapshot_request_action(
+                batch.coordinator, pending.stamp, pending.next_offset));
             return actions;
         }
-
-        const auto stamp =
-            pending.stamp;
-        auto keys =
-            std::move(pending.keys);
-        pending_.erase(
-            pending_it);
-
-        if (!host_.apply_remote_snapshot(
-                batch.coordinator,
-                stamp,
-                keys)) {
+        const auto stamp = pending.stamp;
+        bool applied = false;
+        try {
+            // RemoteDemandIndex validates before changing its inverse map.
+            applied = host_.apply_remote_snapshot(
+                batch.coordinator, stamp, pending.keys);
+        } catch (const std::invalid_argument&) {
+            ++stats_.stale_packets;
+            pending.keys.clear();
+            pending.next_offset = 0;
+            pending.next_retry_ms = last_now_ms_ + 300;
+            pending.retry_attempts = 0;
             return actions;
         }
-
+        if (!applied) return actions;
+        pending_.erase(pending_it);
         reconcile_routes(
-            batch.coordinator,
-            stamp.incarnation,
-            actions);
-
+            batch.coordinator, stamp.incarnation, actions);
         return actions;
     }
 
