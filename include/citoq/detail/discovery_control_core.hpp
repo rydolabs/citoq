@@ -3,7 +3,9 @@
 #include <citoq/demand_control.hpp>
 #include <citoq/detail/host_runtime_core.hpp>
 
+#include <algorithm>
 #include <cstddef>
+#include <optional>
 #include <cstdint>
 #include <span>
 #include <unordered_map>
@@ -42,6 +44,7 @@ private:
         std::vector<InterestKey> keys;
         std::uint32_t next_offset{};
         std::uint64_t next_retry_ms{};
+        std::uint32_t retry_attempts{};
     };
 
     using RequestedRoutes =
@@ -75,6 +78,7 @@ public:
         const DemandSummaryAnnouncement& message,
         std::uint64_t now_ms) {
         std::vector<ControlAction> actions;
+        last_now_ms_ = now_ms;
 
         if (message.coordinator == self_) {
             return actions;
@@ -104,6 +108,7 @@ public:
                 message.coordinator);
             unconfirmed_routes_.erase(message.coordinator);
             next_route_retry_ms_.erase(message.coordinator);
+            route_retry_attempts_.erase(message.coordinator);
         }
 
         if (!host_.needs_remote_snapshot(
@@ -129,7 +134,9 @@ public:
             // not prove its earlier UDP snapshot reply was received.
             // Retry from the last verified page, never replay applied pages.
             if (now_ms >= pending_it->second.next_retry_ms) {
-                pending_it->second.next_retry_ms = now_ms + 300;
+                pending_it->second.next_retry_ms = now_ms +
+                    retry_delay(++pending_it->second.retry_attempts,
+                                message.coordinator ^ pending_it->second.next_offset);
                 ++stats_.snapshot_retries;
                 actions.push_back(snapshot_request_action(
                     message.coordinator, message.stamp,
@@ -145,7 +152,8 @@ public:
                 message.stamp,
                 {},
                 0,
-                now_ms + 300});
+                now_ms + 300,
+                0});
 
         actions.push_back(
             snapshot_request_action(
@@ -196,6 +204,8 @@ public:
         pending.next_offset +=
             static_cast<std::uint32_t>(
                 batch.keys.size());
+        pending.next_retry_ms = last_now_ms_ + 300;
+        pending.retry_attempts = 0;
 
         if (
             pending.next_offset <
@@ -420,6 +430,7 @@ public:
             if (it->second.empty()) {
                 unconfirmed_routes_.erase(it);
                 next_route_retry_ms_.erase(batch.coordinator);
+                route_retry_attempts_.erase(batch.coordinator);
             }
         }
 
@@ -442,6 +453,7 @@ public:
                 coordinator);
             unconfirmed_routes_.erase(coordinator);
             next_route_retry_ms_.erase(coordinator);
+            route_retry_attempts_.erase(coordinator);
         }
 
         stats_.expired_coordinators +=
@@ -472,6 +484,76 @@ public:
     }
 
 private:
+    // Request sends do not imply success; only a validated response does.
+    // Timer polling works without receiving a new UDP announcement.
+    static std::uint64_t retry_delay(
+        std::uint32_t attempts, std::uint64_t salt) noexcept {
+        const auto base = std::uint64_t{300}
+            << std::min(attempts, std::uint32_t{3});
+        if (attempts == 0) return base;
+        auto hash = salt ^ (0x9e3779b97f4a7c15ULL * attempts);
+        hash ^= hash >> 33;
+        hash *= 0xff51afd7ed558ccdULL;
+        hash ^= hash >> 33;
+        return base * (80 + hash % 41) / 100;
+    }
+
+public:
+    std::vector<ControlAction> poll_retries(
+        std::uint64_t now_ms) {
+        last_now_ms_ = now_ms;
+        std::vector<ControlAction> actions;
+#if !defined(CITOQ_DISCOVERY_RETRY) || CITOQ_DISCOVERY_RETRY
+        for (auto& [coordinator, pending] : pending_) {
+            if (now_ms < pending.next_retry_ms ||
+                !host_.coordinator_is_current(
+                    coordinator, pending.stamp.incarnation)) continue;
+            ++stats_.snapshot_retries;
+            actions.push_back(snapshot_request_action(
+                coordinator, pending.stamp, pending.next_offset));
+            pending.next_retry_ms = now_ms +
+                retry_delay(++pending.retry_attempts,
+                            coordinator ^ pending.next_offset);
+        }
+        for (const auto& [coordinator, pending] : unconfirmed_routes_) {
+            if (pending.empty()) continue;
+            const auto incarnation = host_.coordinator_incarnation(coordinator);
+            if (incarnation)
+                retry_unconfirmed_routes(
+                    coordinator, *incarnation, now_ms, actions);
+        }
+#endif
+        return actions;
+    }
+
+    std::optional<std::uint64_t> next_retry_ms() const noexcept {
+#if !defined(CITOQ_DISCOVERY_RETRY) || CITOQ_DISCOVERY_RETRY
+        std::optional<std::uint64_t> earliest;
+        for (const auto& [coordinator, state] : pending_) {
+            if (!earliest || state.next_retry_ms < *earliest)
+                earliest = state.next_retry_ms;
+        }
+        for (const auto& [coordinator, keys] : unconfirmed_routes_) {
+            if (keys.empty()) continue;
+            const auto it = next_route_retry_ms_.find(coordinator);
+            if (it == next_route_retry_ms_.end()) continue;
+            if (!earliest || it->second < *earliest)
+                earliest = it->second;
+        }
+        return earliest;
+#else
+        return std::nullopt;
+#endif
+    }
+
+private:
+    void arm_route_retry(CoordinatorId coordinator) {
+        if (!next_route_retry_ms_.contains(coordinator)) {
+            next_route_retry_ms_[coordinator] = last_now_ms_ + 300;
+            route_retry_attempts_[coordinator] = 0;
+        }
+    }
+
     void retry_unconfirmed_routes(
         CoordinatorId coordinator,
         std::uint64_t incarnation,
@@ -482,7 +564,8 @@ private:
             return;
         auto& next_retry = next_route_retry_ms_[coordinator];
         if (next_retry != 0 && now_ms < next_retry) return;
-        next_retry = now_ms + 300;
+        next_retry = now_ms +
+            retry_delay(++route_retry_attempts_[coordinator], coordinator);
         for (const auto& key : pending->second) {
             if (!desired_routes_.contains(key) ||
                 !host_.candidate_hosts(key).contains(coordinator))
@@ -566,6 +649,7 @@ private:
             requested[key] =
                 *incarnation;
             unconfirmed_routes_[coordinator].insert(key);
+            arm_route_retry(coordinator);
 
             actions.push_back(
                 route_request_action(
@@ -643,6 +727,7 @@ private:
             requested[key] =
                 incarnation;
             unconfirmed_routes_[coordinator].insert(key);
+            arm_route_retry(coordinator);
 
             actions.push_back(
                 route_request_action(
@@ -680,6 +765,8 @@ private:
         CoordinatorId,
         std::unordered_set<InterestKey, InterestKeyHash>> unconfirmed_routes_;
     std::unordered_map<CoordinatorId, std::uint64_t> next_route_retry_ms_;
+    std::unordered_map<CoordinatorId, std::uint32_t> route_retry_attempts_;
+    std::uint64_t last_now_ms_{};
 
     DiscoveryControlStats stats_;
 };
