@@ -1,7 +1,7 @@
 name: CitoQ Discovery convergence 100 and 200 netns under loss
 on:
   push:
-    branches: ['feat/discovery-convergence-*']
+    branches: ['feat/discovery-convergence-*', 'diagnose/discovery-netns-timeout-20261102']
     paths:
       - 'bench/matrix/**'
       - '.github/workflows/benchmark-discovery-200netns.yml'
