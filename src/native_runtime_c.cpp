@@ -83,6 +83,11 @@ extern "C" size_t citoq_native_completed_send_count(citoq_native_runtime_t* h) {
     try { return h->driver->completed_send_count(); } catch (...) { return 0; }
 }
 
+extern "C" size_t citoq_native_dropped_send_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->dropped_send_count(); } catch (...) { return 0; }
+}
+
 extern "C" void citoq_native_close(citoq_native_runtime_t* h) {
     if (!h) return;
     try {
