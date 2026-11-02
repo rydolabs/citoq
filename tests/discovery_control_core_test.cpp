@@ -120,7 +120,7 @@ int main() {
     assert(actions.size() == 1);
     // Lose the initial CTR3 request or CTR5 response. Repeated
     // unchanged advertisements must re-send only an unconfirmed route.
-    actions = publisher_control.on_summary(announcement, 1400);
+    actions = publisher_control.on_summary(announcement, 1602);
     assert(actions.size() == 1);
     assert(route_request(actions[0]).key == position);
 
@@ -157,7 +157,7 @@ int main() {
             .contains(77));
 
     // A successfully acknowledged route should not be re-requested.
-    assert(publisher_control.on_summary(announcement, 1450).empty());
+    assert(publisher_control.on_summary(announcement, 1703).empty());
 
     // Duplicate ensure must not create control churn.
     assert(
@@ -179,7 +179,7 @@ int main() {
     actions =
         publisher_control.on_summary(
             withdrawn_announcement,
-            1510);
+            1800);
 
     assert(actions.size() == 1);
 
