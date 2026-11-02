@@ -388,6 +388,12 @@ public:
     }
 
     std::size_t
+    dropped_send_count()
+        const noexcept {
+        return dropped_sends_.load(std::memory_order_relaxed);
+    }
+
+    std::size_t
     completed_send_count()
         const noexcept {
         return
@@ -792,6 +798,7 @@ private:
             !it->second->connected.load(
                     std::memory_order_acquire) ||
             !it->second->handle) {
+            ++dropped_sends_;
             runtime_.request_network()
                 .detach_session(
                     destination,
@@ -824,6 +831,7 @@ private:
                     context,
                     &handle))) {
             delete context;
+            ++dropped_sends_;
             transport_failed(
                 destination);
             return;
@@ -841,6 +849,7 @@ private:
             stream->handle =
                 nullptr;
             delete context;
+            ++dropped_sends_;
             transport_failed(
                 destination);
             return;
@@ -859,6 +868,7 @@ private:
                     0);
             }
 
+            ++dropped_sends_;
             transport_failed(
                 destination);
         }
@@ -1662,6 +1672,7 @@ private:
     std::atomic<
         std::size_t> completed_sends_{
             0};
+    std::atomic<std::size_t> dropped_sends_{0};
 
     std::mutex queue_mutex_;
     std::deque<
@@ -1807,6 +1818,13 @@ outstanding_send_count()
             ? impl_->
                   outstanding_send_count()
             : 0;
+}
+
+std::size_t
+MsQuicRequestSessionManager::
+dropped_send_count()
+    const noexcept {
+    return impl_ ? impl_->dropped_send_count() : 0;
 }
 
 std::size_t
