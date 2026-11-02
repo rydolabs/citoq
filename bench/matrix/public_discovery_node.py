@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Public Context + native mTLS/QUIC multi-node readiness probe, not a cross-engine fair ranking."""
-import argparse,json,struct,sys,time
+import argparse,json,os,struct,sys,time
 from contextlib import contextmanager
 from pathlib import Path
 import citoq
@@ -111,6 +111,10 @@ def main():
    return 0 if (a.role=="negative" and len(seen)==0 or a.role=="subscriber" and len(seen)==a.count) and duplicates==0 and invalid==0 else 2
   ctx.advertise_raw(TYPE,RESOURCE)
   t0=now()
+  # Comparison mode: observe established QUIC sessions without injecting
+  # probe data streams. The original publish-probe mode remains the default.
+  passive_ready=os.environ.get("CITOQ_BENCH_PASSIVE_READY")=="1"
+  print("BENCH_READY_MODE="+("session_count" if passive_ready else "publish_probe"),flush=True)
   target=a.nodes-2
   matched=0
   until=time.monotonic()+a.discovery_timeout_ms/1000
@@ -119,7 +123,10 @@ def main():
    transport.poll()
    heartbeat(transport,"publisher_discovery",matched=matched,probes=probe)
    probe+=1
-   matched=ctx.publish_raw(TYPE,b"P"+struct.pack("<Q",probe),RESOURCE)
+   if passive_ready:
+    matched=transport.diagnostics().get("session",0)
+   else:
+    matched=ctx.publish_raw(TYPE,b"P"+struct.pack("<Q",probe),RESOURCE)
    transport.poll()
    if matched==target:break
    time.sleep(.025)
