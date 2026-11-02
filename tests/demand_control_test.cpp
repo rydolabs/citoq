@@ -127,6 +127,33 @@ int main() {
             .quic_port ==
         4431);
 
+    // Version negotiation must preserve old CTR3/CTR5 peers.
+    assert(citoq::encode_route_request(route_request)[3] == '3');
+    citoq::RouteRequest versioned_request = route_request;
+    versioned_request.supports_route_version = true;
+    auto ctr7 = citoq::encode_route_request(versioned_request);
+    assert(ctr7[3] == '7');
+    assert(citoq::decode_route_request(ctr7).supports_route_version);
+    assert(!route_request_roundtrip.supports_route_version);
+
+    citoq::RouteBatch versioned = routes;
+    versioned.version = 7;
+    auto ctr6 = citoq::encode_route_batch(versioned);
+    assert(ctr6[3] == '6');
+    assert(ctr6.size() == route_bytes.size() + 8);
+    assert(citoq::decode_route_batch(ctr6).version == 7);
+    ctr6[48] = 0; // zero version is forbidden in versioned frames
+    for (std::size_t i=49; i<56; ++i) ctr6[i]=0;
+    bool bad_ctr6 = false;
+    try { (void)citoq::decode_route_batch(ctr6); }
+    catch (const std::runtime_error&) { bad_ctr6=true; }
+    assert(bad_ctr6);
+
+    auto small = citoq::encode_route_version_announcement(
+        citoq::RouteVersionAnnouncement{7,11,keys[0],5});
+    assert(small.size()==52 && small[3]=='1');
+    assert(citoq::decode_route_version_announcement(small).version==5);
+
     // CTR4 remains decodable: its old reserved u16 maps to quic_port=0.
     citoq::RouteBatch legacy_routes{
         7,
