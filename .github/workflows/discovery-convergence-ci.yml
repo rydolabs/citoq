@@ -31,6 +31,12 @@ jobs:
           set -euo pipefail
           ctest --test-dir build-convergence --output-on-failure \
             -R '^citoq_(discovery_retry_timer_tests|discovery_endpoint_convergence_tests|discovery_convergence_200_tests|discovery_control_core_tests|discovery_control_core_smoke|udp_runtime_adapter_tests|posix_udp_control_manager_tests|demand_control_tests|demand_summary_tests|host_scale_200_tests)
+      - name: Build and run complete non-MsQuic CTest regression
+        run: |
+          set -euo pipefail
+          cmake --build build-convergence --parallel 3
+          ctest --test-dir build-convergence --output-on-failure --parallel 2
+
 
       - name: Build and run complete non-MsQuic CTest regression
         run: |
