@@ -524,8 +524,13 @@ public:
 private:
     bool open_client_configuration() {
         QUIC_SETTINGS settings{};
+        // Multi-node demand-driven discovery can attach sessions tens of seconds
+        // before the last destination connects. The former 10 s idle timeout
+        // expired early sessions before the first data publish and caused
+        // session-count readiness to drop mid-burst. Keep bounded expiry,
+        // but cover the 90 s discovery budget plus its data/FIN drain.
         settings.IdleTimeoutMs =
-            10000;
+            120000;
         settings.IsSet.IdleTimeoutMs =
             TRUE;
         settings.PeerBidiStreamCount =
@@ -594,8 +599,13 @@ private:
         }
 
         QUIC_SETTINGS settings{};
+        // Multi-node demand-driven discovery can attach sessions tens of seconds
+        // before the last destination connects. The former 10 s idle timeout
+        // expired early sessions before the first data publish and caused
+        // session-count readiness to drop mid-burst. Keep bounded expiry,
+        // but cover the 90 s discovery budget plus its data/FIN drain.
         settings.IdleTimeoutMs =
-            10000;
+            120000;
         settings.IsSet.IdleTimeoutMs =
             TRUE;
         settings.PeerBidiStreamCount =

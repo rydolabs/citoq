@@ -4,6 +4,7 @@ on:
     branches: ['feat/discovery-convergence-*', 'diagnose/discovery-netns-timeout-20261102']
     paths:
       - 'bench/matrix/**'
+      - 'src/msquic_request_session_manager.cpp'
       - '.github/workflows/benchmark-discovery-200netns.yml'
   workflow_dispatch:
 # Full-matrix verification rerun (2026-11-02); scenarios and pass/fail gates unchanged.
