@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Public Context + native mTLS/QUIC multi-node readiness probe, not a cross-engine fair ranking."""
-import argparse,json,os,struct,sys,time
+import argparse,hashlib,json,os,struct,sys,time
 from contextlib import contextmanager
 from pathlib import Path
 import citoq
@@ -34,6 +34,8 @@ def main():
  p.add_argument("--client-cert",required=True)
  p.add_argument("--client-key",required=True)
  a=p.parse_args()
+ print("BENCH_SOURCE_SHA256="+hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),flush=True)
+ print("BENCH_NODE_START="+json.dumps(dict(role=a.role,index=a.index,nodes=a.nodes,pid=os.getpid())),flush=True)
  pub=a.role=="publisher"
  opts=dict(coordinator=20 if pub else 50+a.index,
            incarnation=2001 if pub else 5001+a.index,
@@ -80,8 +82,10 @@ def main():
   else:
    if first_received_ns==0:
     first_received_ns=now()
-    print(f"BENCH_FIRST_DATA ns={first_received_ns}",flush=True)
+    print(f"BENCH_FIRST_DATA ns={first_received_ns} transport="+json.dumps(transport.diagnostics()),flush=True)
    seen.add(seq)
+   if len(seen)==a.count:
+    print("BENCH_RECEIVED_ALL transport="+json.dumps(transport.diagnostics()),flush=True)
  with observed_runtime(**opts) as transport, citoq.Context("acme") as ctx:
   if not pub:
    sub_type=TYPE if a.role=="subscriber" else TYPE+10000
@@ -143,6 +147,7 @@ def main():
     heartbeat(transport,"publisher_data",frame=i)
     sent=ctx.publish_raw(TYPE,b"D"+struct.pack("<Q",i)+b"A"*247,RESOURCE)
     transport.poll()
+    print("BENCH_SEND_FRAME="+json.dumps(dict(seq=i,matched=sent,transport=transport.diagnostics())),flush=True)
     if sent!=target:
      print("PUBLIC_SEND_FAILED "+str(sent),flush=True)
      return 3
