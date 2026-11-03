@@ -100,6 +100,18 @@ def main():
      grace=time.monotonic()+.2
      while time.monotonic()<grace:
       transport.poll();time.sleep(.0005)
+     # For the opt-in FIN-ACK gate, keep the receive-side QUIC connection
+     # alive until the publisher has acknowledged all stream FINs.
+     # Otherwise a fast receiver exit races with the sender ACK gate.
+     # The existing lifetime deadline remains the upper bound.
+     if os.environ.get("CITOQ_BENCH_WAIT_QUIC_ACK")=="1" and a.completion_file:
+      marker=Path(a.completion_file)
+      print("BENCH_PHASE=receiver_wait_publisher_ack",flush=True)
+      while time.monotonic()<until and not marker.exists():
+       transport.poll()
+       heartbeat(transport,"receiver_wait_publisher_ack")
+       time.sleep(.002)
+      print("BENCH_PHASE=receiver_ack_wait_done marker="+str(marker.exists()),flush=True)
      break
     if a.role=="negative" and a.completion_file and Path(a.completion_file).exists():
      # The publisher has finished. Keep watching an additional 300ms for
