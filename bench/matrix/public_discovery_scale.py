@@ -243,10 +243,10 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
             log = folder / f"node-{index:03d}-{role}.log"
             output = count_markers(log)
             exit_code = proc.poll()
-            phases = re.findall(r"^BENCH_PHASE=([^\\s]+)", output, re.MULTILINE)
-            progress = re.findall(r"^BENCH_PROGRESS=(\\{[^\\n]+\\})$", output, re.MULTILINE)
-            ack = re.findall(r"^BENCH_ACK_STATUS=(\\{[^\\n]+\\})$", output, re.MULTILINE)
-            sent_frames = re.findall(r"^BENCH_SEND_FRAME=(\\{[^\\n]+\\})$", output, re.MULTILINE)
+            phases = re.findall(r"^BENCH_PHASE=(\S+)", output, re.MULTILINE)
+            progress = re.findall(r"^BENCH_PROGRESS=(.+)$", output, re.MULTILINE)
+            ack = re.findall(r"^BENCH_ACK_STATUS=(.+)$", output, re.MULTILINE)
+            sent_frames = re.findall(r"^BENCH_SEND_FRAME=(.+)$", output, re.MULTILINE)
             states.append({
                 "index": index, "role": role, "exit": exit_code,
                 "alive_at_failure": exit_code is None,
