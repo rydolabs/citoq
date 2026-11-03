@@ -529,11 +529,17 @@ public:
 private:
     bool open_client_configuration() {
         QUIC_SETTINGS settings{};
-        // Multi-node demand-driven discovery can attach sessions tens of seconds
-        // before the last destination connects. The former 10 s idle timeout
-        // expired early sessions before the first data publish and caused
-        // session-count readiness to drop mid-burst. Keep bounded expiry,
-        // but cover the 90 s discovery budget plus its data/FIN drain.
+        // Real 200-node loss tests observed QUIC_STATUS_CONNECTION_IDLE
+        // on server-side connections whose handshake had not completed,
+        // followed by QUIC_STATUS_ABORTED on matching publisher sessions.
+        // The independent MsQuic handshake timer defaults to 10s; allow
+        // 30s for CPU-constrained high-fanout mTLS, still bounded.
+        settings.HandshakeIdleTimeoutMs =
+            30000;
+        settings.IsSet.HandshakeIdleTimeoutMs =
+            TRUE;
+        // Established sessions may wait through the discovery fanout
+        // before their first data. Keep their separate 120s idle limit.
         settings.IdleTimeoutMs =
             120000;
         settings.IsSet.IdleTimeoutMs =
@@ -604,11 +610,17 @@ private:
         }
 
         QUIC_SETTINGS settings{};
-        // Multi-node demand-driven discovery can attach sessions tens of seconds
-        // before the last destination connects. The former 10 s idle timeout
-        // expired early sessions before the first data publish and caused
-        // session-count readiness to drop mid-burst. Keep bounded expiry,
-        // but cover the 90 s discovery budget plus its data/FIN drain.
+        // Real 200-node loss tests observed QUIC_STATUS_CONNECTION_IDLE
+        // on server-side connections whose handshake had not completed,
+        // followed by QUIC_STATUS_ABORTED on matching publisher sessions.
+        // The independent MsQuic handshake timer defaults to 10s; allow
+        // 30s for CPU-constrained high-fanout mTLS, still bounded.
+        settings.HandshakeIdleTimeoutMs =
+            30000;
+        settings.IsSet.HandshakeIdleTimeoutMs =
+            TRUE;
+        // Established sessions may wait through the discovery fanout
+        // before their first data. Keep their separate 120s idle limit.
         settings.IdleTimeoutMs =
             120000;
         settings.IsSet.IdleTimeoutMs =
