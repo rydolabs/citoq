@@ -1417,9 +1417,13 @@ private:
                         server_configuration_);
 
         if (QUIC_FAILED(status)) {
-            self->api_->
-                ConnectionClose(
-                    state->handle);
+            // The listener NEW_CONNECTION callback is returning failure.
+            // MsQuic owns and rejects this handle after the callback;
+            // ConnectionClose here would double-free the connection.
+            // See MsQuic ConnectionClose API documentation.
+            diagnostics::shutdown_trace(
+                "listener", "set_configuration_failed",
+                static_cast<std::size_t>(status));
             state->handle = nullptr;
             state->callback_context =
                 nullptr;
