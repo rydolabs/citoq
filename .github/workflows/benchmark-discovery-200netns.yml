@@ -1,4 +1,4 @@
-name: CitoQ Discovery A-B previous-vs-convergence 200 netns
+name: CitoQ Discovery A-B sparse probe 50-200 netns
 on:
   push:
     branches: ['feat/discovery-convergence-ab-*']
@@ -16,9 +16,9 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 2
       matrix:
-        nodes: [200]
+        nodes: [50, 100, 150, 200]
         profile: [baseline, netem_10ms_1pct, netem_10ms_2pct]
     name: discovery N${{ matrix.nodes }} ${{ matrix.profile }}
     steps:
@@ -84,15 +84,17 @@ jobs:
 
       - name: Strict public Context discovery, verified netem and exact per-node delivery
         shell: bash
-        # Legacy-compatible A/B: same publish-probe traffic and strict application delivery on both code bases.
+        # Identical A/B 1000-ms probe cadence (legacy-compatible), unchanged exact-delivery gate.
         env:
           CITOQ_BENCH_PASSIVE_READY: '0'
           CITOQ_BENCH_WAIT_QUIC_ACK: '0'
+          CITOQ_BENCH_PROBE_INTERVAL_MS: '1000'
         run: |
           set -euo pipefail
           python3 -m py_compile bench/matrix/public_discovery_scale.py bench/matrix/public_discovery_node.py bench/m26/m26_efficiency.py
           nodes=${{ matrix.nodes }}
           repeats=2
+          if [[ "$nodes" -eq 200 ]]; then repeats=1; fi
           python3 bench/matrix/public_discovery_scale.py \
             --nodes "$nodes" --profile '${{ matrix.profile }}' \
             --repeats "$repeats" --count 8 \

@@ -86,6 +86,7 @@ def launch(index, role, nodes, count, lifetime_ms, discovery_ms,
         env["CITOQ_BENCH_PASSIVE_READY"] = "1"
     if os.environ.get("CITOQ_BENCH_WAIT_QUIC_ACK") == "1":
         env["CITOQ_BENCH_WAIT_QUIC_ACK"] = "1"
+    env["CITOQ_BENCH_PROBE_INTERVAL_MS"] = os.environ.get("CITOQ_BENCH_PROBE_INTERVAL_MS", "1000")
     args = [
         "sudo", "-n", "ip", "netns", "exec", ns, "env",
         *(f"{key}={value}" for key, value in env.items()),
@@ -317,7 +318,7 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--nodes", type=int, choices=(3,10,30,50,100,200), required=True)
+    parser.add_argument("--nodes", type=int, choices=(3,10,30,50,100,150,200), required=True)
     parser.add_argument("--profile", choices=tuple(PROFILES), required=True)
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--count", type=int, default=8)
