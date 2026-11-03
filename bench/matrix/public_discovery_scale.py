@@ -243,12 +243,24 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
             log = folder / f"node-{index:03d}-{role}.log"
             output = count_markers(log)
             exit_code = proc.poll()
+            phases = re.findall(r"^BENCH_PHASE=([^\\s]+)", output, re.MULTILINE)
+            progress = re.findall(r"^BENCH_PROGRESS=(\\{[^\\n]+\\})$", output, re.MULTILINE)
+            ack = re.findall(r"^BENCH_ACK_STATUS=(\\{[^\\n]+\\})$", output, re.MULTILINE)
+            sent_frames = re.findall(r"^BENCH_SEND_FRAME=(\\{[^\\n]+\\})$", output, re.MULTILINE)
             states.append({
                 "index": index, "role": role, "exit": exit_code,
                 "alive_at_failure": exit_code is None,
                 "receiver_ready": "RECEIVER_READY" in output,
                 "publisher_discovery_ready": "PUBLIC_DISCOVERY_READY" in output,
                 "first_data": "BENCH_FIRST_DATA" in output,
+                "received_all": "BENCH_RECEIVED_ALL" in output,
+                "last_phase": phases[-1] if phases else None,
+                "last_progress": json.loads(progress[-1]) if progress else None,
+                "last_ack": json.loads(ack[-1]) if ack else None,
+                "sent_frame_count": len(sent_frames),
+                "source_sha256": (re.search(r"^BENCH_SOURCE_SHA256=([a-f0-9]{64})$", output, re.MULTILINE).group(1)
+                                  if re.search(r"^BENCH_SOURCE_SHA256=([a-f0-9]{64})$", output, re.MULTILINE)
+                                  else None),
                 "node_result": parse_node(log),
                 "log_tail": output.splitlines()[-12:],
             })
@@ -264,6 +276,14 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         metrics["failure_positive_first_data_count"] = sum(
             x["first_data"] for x in states
             if x["role"] == "subscriber")
+        metrics["failure_positive_complete_count"] = sum(
+            x["received_all"] for x in states
+            if x["role"] == "subscriber")
+        metrics["failure_publisher_sent_frame_count"] = sum(
+            x["sent_frame_count"] for x in states
+            if x["role"] == "publisher")
+        metrics["failure_publisher_last_phase"] = next(
+            (x["last_phase"] for x in states if x["role"] == "publisher"), None)
     finally:
         # Always kill the *real namespace workers*, not only sudo wrappers.
         # This matters when a child detaches from its wrapper process group.
