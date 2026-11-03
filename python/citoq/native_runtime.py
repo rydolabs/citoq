@@ -64,7 +64,8 @@ class NativeRuntime:
             self._poll_wait_fn.restype = ctypes.c_size_t
         # Counters are optional: retain support for older native libraries.
         self._diagnostic_counters = {}
-        for field in ("session", "peer", "outstanding_send", "completed_send", "dropped_send"):
+        for field in ("session", "peer", "outstanding_send", "completed_send",
+                      "dropped_send", "acknowledged_send", "canceled_send"):
             fn = getattr(self._lib, f"citoq_native_{field}_count", None)
             if fn is not None:
                 fn.argtypes = [ctypes.c_void_p]

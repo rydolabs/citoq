@@ -149,6 +149,26 @@ def main():
     time.sleep(.1)
    print("BENCH_PHASE=publisher_sent_all transport="+json.dumps(
     transport.diagnostics()),flush=True)
+   if os.environ.get("CITOQ_BENCH_WAIT_QUIC_ACK")=="1":
+    # Test-only reliability gate: keep the QUIC connections alive until
+    # every data stream FIN is acknowledged, not merely buffered locally.
+    expected_acks=target*a.count
+    ack_deadline=time.monotonic()+min(30,a.discovery_timeout_ms/1000)
+    acked=0
+    while time.monotonic()<ack_deadline:
+     transport.poll()
+     snapshot=transport.diagnostics()
+     acked=snapshot.get("acknowledged_send",0)
+     if acked>=expected_acks:break
+     heartbeat(transport,"publisher_wait_quic_ack",acknowledged=acked,
+               expected_acks=expected_acks)
+     time.sleep(.002)
+    print("BENCH_ACK_STATUS="+json.dumps(dict(
+     acknowledged=acked,expected=expected_acks,
+     transport=transport.diagnostics())),flush=True)
+    if acked<expected_acks:
+     print("PUBLIC_ACK_TIMEOUT",flush=True)
+     return 5
    until=time.monotonic()+1.5
    while time.monotonic()<until:
     transport.poll()

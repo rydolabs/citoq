@@ -90,6 +90,12 @@ public:
     std::size_t dropped_send_count()
         const noexcept;
 
+    std::size_t acknowledged_send_count()
+        const noexcept;
+
+    std::size_t canceled_send_count()
+        const noexcept;
+
     const PosixUdpControlStats&
     control_stats()
         const noexcept;

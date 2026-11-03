@@ -351,6 +351,20 @@ dropped_send_count()
     return quic_.dropped_send_count();
 }
 
+std::size_t
+LinuxRequestRuntimeDriver::
+acknowledged_send_count()
+    const noexcept {
+    return quic_.acknowledged_send_count();
+}
+
+std::size_t
+LinuxRequestRuntimeDriver::
+canceled_send_count()
+    const noexcept {
+    return quic_.canceled_send_count();
+}
+
 const PosixUdpControlStats&
 LinuxRequestRuntimeDriver::
 control_stats()
