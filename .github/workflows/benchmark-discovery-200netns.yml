@@ -1,11 +1,13 @@
-name: CitoQ Discovery convergence 100 and 200 netns under loss
+name: CitoQ Discovery A-B previous-vs-convergence 200 netns
 on:
   push:
-    branches: ['feat/discovery-convergence-*']
+    branches: ['feat/discovery-convergence-ab-*']
     paths:
       - 'bench/matrix/**'
+      - 'src/msquic_request_session_manager.cpp'
       - '.github/workflows/benchmark-discovery-200netns.yml'
   workflow_dispatch:
+# A/B: common exact-delivery harness only; older runtime lacks diagnostic ACK symbols.
 permissions:
   contents: read
 jobs:
@@ -16,7 +18,7 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        nodes: [100, 200]
+        nodes: [200]
         profile: [baseline, netem_10ms_1pct, netem_10ms_2pct]
     name: discovery N${{ matrix.nodes }} ${{ matrix.profile }}
     steps:
@@ -82,12 +84,15 @@ jobs:
 
       - name: Strict public Context discovery, verified netem and exact per-node delivery
         shell: bash
+        # Legacy-compatible A/B: same publish-probe traffic and strict application delivery on both code bases.
+        env:
+          CITOQ_BENCH_PASSIVE_READY: '0'
+          CITOQ_BENCH_WAIT_QUIC_ACK: '0'
         run: |
           set -euo pipefail
           python3 -m py_compile bench/matrix/public_discovery_scale.py bench/matrix/public_discovery_node.py bench/m26/m26_efficiency.py
           nodes=${{ matrix.nodes }}
-          repeats=1
-          if [[ "$nodes" -eq 100 ]]; then repeats=2; fi
+          repeats=2
           python3 bench/matrix/public_discovery_scale.py \
             --nodes "$nodes" --profile '${{ matrix.profile }}' \
             --repeats "$repeats" --count 8 \
