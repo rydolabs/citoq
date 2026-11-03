@@ -1,4 +1,5 @@
 #include <citoq/detail/linux_request_runtime_driver.hpp>
+#include <citoq/detail/msquic_shutdown_trace.hpp>
 
 #include <cerrno>
 #include <chrono>
@@ -177,7 +178,9 @@ LinuxRequestRuntimeDriver(
 
 LinuxRequestRuntimeDriver::
 ~LinuxRequestRuntimeDriver() {
+    diagnostics::shutdown_trace("driver", "destructor_begin");
     stop();
+    diagnostics::shutdown_trace("driver", "stop_done");
 
     quic_.set_wake_callback({});
 
@@ -189,8 +192,12 @@ LinuxRequestRuntimeDriver::
         wake();
     }
 
+    diagnostics::shutdown_trace("driver", "quic_shutdown_begin");
     quic_.shutdown();
+    diagnostics::shutdown_trace("driver", "quic_shutdown_done");
+    diagnostics::shutdown_trace("driver", "control_stop_begin");
     control_.stop();
+    diagnostics::shutdown_trace("driver", "control_stop_done");
 
     if (wake_read_ >= 0) {
         ::close(wake_read_);
@@ -201,6 +208,7 @@ LinuxRequestRuntimeDriver::
         ::close(wake_write_);
         wake_write_ = -1;
     }
+    diagnostics::shutdown_trace("driver", "destructor_body_done");
 }
 
 bool LinuxRequestRuntimeDriver::ensure_data(const InterestKey& key) {
