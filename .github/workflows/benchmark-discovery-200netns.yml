@@ -1,7 +1,7 @@
 name: CitoQ Discovery convergence 100 and 200 netns under loss
 on:
   push:
-    branches: ['feat/discovery-convergence-*', 'diagnose/discovery-netns-timeout-20261102']
+    branches: ['feat/discovery-convergence-*', 'feat/discovery-quic-cause-*', 'diagnose/discovery-netns-timeout-20261102']
     paths:
       - 'bench/matrix/**'
       - 'src/msquic_request_session_manager.cpp'
