@@ -7,6 +7,8 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -117,6 +119,7 @@ private:
         bool finalized{false};
         std::atomic<bool> closed{
             false};
+        std::atomic<bool> fin_acknowledged{false};
     };
 
 public:
@@ -129,6 +132,8 @@ public:
         : runtime_(runtime),
           lifecycle_(lifecycle),
           options_(std::move(options)) {
+        const char* flag = std::getenv("CITOQ_TRACE_QUIC_EVENTS");
+        trace_quic_events_ = flag && flag[0] == '1' && flag[1] == '\0';
         if (QUIC_FAILED(
                 MsQuicOpen2(
                     &api_))) {
@@ -820,6 +825,11 @@ private:
             !it->second->connected.load(
                     std::memory_order_acquire) ||
             !it->second->handle) {
+            if (trace_quic_events_) {
+                std::fprintf(stderr,
+                    "CITOQ_QUIC_SEND_FAIL stage=no_outbound_session destination=%llu\n",
+                    static_cast<unsigned long long>(destination));
+            }
             ++dropped_sends_;
             runtime_.request_network()
                 .detach_session(
@@ -845,13 +855,16 @@ private:
 
         HQUIC handle = nullptr;
 
-        if (QUIC_FAILED(
-                api_->StreamOpen(
-                    it->second->handle,
-                    QUIC_STREAM_OPEN_FLAG_NONE,
-                    &stream_callback,
-                    context,
-                    &handle))) {
+        const auto open_status = api_->StreamOpen(
+            it->second->handle, QUIC_STREAM_OPEN_FLAG_NONE,
+            &stream_callback, context, &handle);
+        if (QUIC_FAILED(open_status)) {
+            if (trace_quic_events_) {
+                std::fprintf(stderr,
+                    "CITOQ_QUIC_SEND_FAIL stage=stream_open destination=%llu status=0x%llx\n",
+                    static_cast<unsigned long long>(destination),
+                    static_cast<unsigned long long>(open_status));
+            }
             delete context;
             ++dropped_sends_;
             transport_failed(
@@ -862,10 +875,15 @@ private:
         stream->handle =
             handle;
 
-        if (QUIC_FAILED(
-                api_->StreamStart(
-                    handle,
-                    QUIC_STREAM_START_FLAG_NONE))) {
+        const auto start_status = api_->StreamStart(
+            handle, QUIC_STREAM_START_FLAG_NONE);
+        if (QUIC_FAILED(start_status)) {
+            if (trace_quic_events_) {
+                std::fprintf(stderr,
+                    "CITOQ_QUIC_SEND_FAIL stage=stream_start destination=%llu status=0x%llx\n",
+                    static_cast<unsigned long long>(destination),
+                    static_cast<unsigned long long>(start_status));
+            }
             api_->StreamClose(
                 handle);
             stream->handle =
@@ -890,6 +908,11 @@ private:
                     0);
             }
 
+            if (trace_quic_events_) {
+                std::fprintf(stderr,
+                    "CITOQ_QUIC_SEND_FAIL stage=stream_send destination=%llu\n",
+                    static_cast<unsigned long long>(destination));
+            }
             ++dropped_sends_;
             transport_failed(
                 destination);
@@ -1459,6 +1482,29 @@ private:
             callback_context->state;
 
         switch (event->Type) {
+            case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
+                if (self->trace_quic_events_) {
+                    std::fprintf(stderr,
+                        "CITOQ_QUIC_CONNECTION event=transport_shutdown outbound=%d destination=%llu peer=%llu status=0x%llx error=0x%llx\n",
+                        state->outbound ? 1 : 0,
+                        static_cast<unsigned long long>(state->destination),
+                        static_cast<unsigned long long>(state->peer),
+                        static_cast<unsigned long long>(event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status),
+                        static_cast<unsigned long long>(event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode));
+                }
+                break;
+
+            case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
+                if (self->trace_quic_events_) {
+                    std::fprintf(stderr,
+                        "CITOQ_QUIC_CONNECTION event=peer_shutdown outbound=%d destination=%llu peer=%llu error=0x%llx\n",
+                        state->outbound ? 1 : 0,
+                        static_cast<unsigned long long>(state->destination),
+                        static_cast<unsigned long long>(state->peer),
+                        static_cast<unsigned long long>(event->SHUTDOWN_INITIATED_BY_PEER.ErrorCode));
+                }
+                break;
+
             case QUIC_CONNECTION_EVENT_CONNECTED:
                 if (state->outbound) {
                     self->post(
@@ -1500,6 +1546,15 @@ private:
             }
 
             case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
+                if (self->trace_quic_events_) {
+                    std::fprintf(stderr,
+                        "CITOQ_QUIC_CONNECTION event=shutdown_complete outbound=%d destination=%llu peer=%llu handshake=%d app_close=%d\n",
+                        state->outbound ? 1 : 0,
+                        static_cast<unsigned long long>(state->destination),
+                        static_cast<unsigned long long>(state->peer),
+                        event->SHUTDOWN_COMPLETE.HandshakeCompleted ? 1 : 0,
+                        event->SHUTDOWN_COMPLETE.AppCloseInProgress ? 1 : 0);
+                }
                 self->post(
                     [self,
                      state] {
@@ -1656,12 +1711,25 @@ private:
                 // peer acknowledged the stream send; not an app-layer ACK.
                 if (!stream->server_side &&
                     event->SEND_SHUTDOWN_COMPLETE.Graceful) {
+                    stream->fin_acknowledged.store(true, std::memory_order_release);
                     self->acknowledged_sends_.fetch_add(
                         1, std::memory_order_relaxed);
                 }
                 break;
 
             case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
+                if (self->trace_quic_events_ &&
+                    !stream->server_side &&
+                    !stream->fin_acknowledged.load(std::memory_order_acquire)) {
+                    std::fprintf(stderr,
+                        "CITOQ_QUIC_STREAM event=unacked_shutdown destination=%llu connection_shutdown=%d remote_close=%d app_close=%d close_status=0x%llx error=0x%llx\n",
+                        static_cast<unsigned long long>(stream->connection->destination),
+                        event->SHUTDOWN_COMPLETE.ConnectionShutdown ? 1 : 0,
+                        event->SHUTDOWN_COMPLETE.ConnectionClosedRemotely ? 1 : 0,
+                        event->SHUTDOWN_COMPLETE.AppCloseInProgress ? 1 : 0,
+                        static_cast<unsigned long long>(event->SHUTDOWN_COMPLETE.ConnectionCloseStatus),
+                        static_cast<unsigned long long>(event->SHUTDOWN_COMPLETE.ConnectionErrorCode));
+                }
                 stream->closed.store(
                     true,
                     std::memory_order_release);
@@ -1695,6 +1763,7 @@ private:
     std::uint16_t listen_port_{};
     bool ready_{false};
     bool owns_wait_hook_{false};
+    bool trace_quic_events_{false};
 
     std::atomic<bool> stopping_{
         false};
