@@ -1,7 +1,7 @@
 name: CitoQ Discovery convergence 100 and 200 netns under loss
 on:
   push:
-    branches: ['feat/discovery-convergence-*', 'diagnose/discovery-netns-timeout-20261102']
+    branches: ['feat/discovery-convergence-*', 'feat/discovery-quic-cause-*', 'diagnose/discovery-netns-timeout-20261102']
     paths:
       - 'bench/matrix/**'
       - 'src/msquic_request_session_manager.cpp'
@@ -18,8 +18,10 @@ jobs:
       fail-fast: false
       max-parallel: 3
       matrix:
-        nodes: [100, 200]
-        profile: [baseline, netem_10ms_1pct, netem_10ms_2pct]
+        # Target the two unresolved loss cases; restore the 6-case matrix
+        # before merging this diagnostic branch.
+        nodes: [200]
+        profile: [netem_10ms_1pct, netem_10ms_2pct]
     name: discovery N${{ matrix.nodes }} ${{ matrix.profile }}
     steps:
       - uses: actions/checkout@v4
@@ -88,6 +90,7 @@ jobs:
         env:
           CITOQ_BENCH_PASSIVE_READY: '1'
           CITOQ_BENCH_WAIT_QUIC_ACK: '1'
+          CITOQ_TRACE_QUIC_EVENTS: '1'
         run: |
           set -euo pipefail
           python3 -m py_compile bench/matrix/public_discovery_scale.py bench/matrix/public_discovery_node.py bench/m26/m26_efficiency.py
