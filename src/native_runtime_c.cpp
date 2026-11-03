@@ -63,6 +63,41 @@ extern "C" size_t citoq_native_poll_wait(
     try { return h->driver->poll_wait(max_wait_ms); } catch (...) { return 0; }
 }
 
+extern "C" size_t citoq_native_session_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->session_count(); } catch (...) { return 0; }
+}
+
+extern "C" size_t citoq_native_peer_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->peer_count(); } catch (...) { return 0; }
+}
+
+extern "C" size_t citoq_native_outstanding_send_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->outstanding_send_count(); } catch (...) { return 0; }
+}
+
+extern "C" size_t citoq_native_completed_send_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->completed_send_count(); } catch (...) { return 0; }
+}
+
+extern "C" size_t citoq_native_dropped_send_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->dropped_send_count(); } catch (...) { return 0; }
+}
+
+extern "C" size_t citoq_native_acknowledged_send_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->acknowledged_send_count(); } catch (...) { return 0; }
+}
+
+extern "C" size_t citoq_native_canceled_send_count(citoq_native_runtime_t* h) {
+    if (!h || !h->driver) return 0;
+    try { return h->driver->canceled_send_count(); } catch (...) { return 0; }
+}
+
 extern "C" void citoq_native_close(citoq_native_runtime_t* h) {
     if (!h) return;
     try {

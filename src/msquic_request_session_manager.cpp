@@ -388,6 +388,24 @@ public:
     }
 
     std::size_t
+    acknowledged_send_count()
+        const noexcept {
+        return acknowledged_sends_.load(std::memory_order_relaxed);
+    }
+
+    std::size_t
+    canceled_send_count()
+        const noexcept {
+        return canceled_sends_.load(std::memory_order_relaxed);
+    }
+
+    std::size_t
+    dropped_send_count()
+        const noexcept {
+        return dropped_sends_.load(std::memory_order_relaxed);
+    }
+
+    std::size_t
     completed_send_count()
         const noexcept {
         return
@@ -792,6 +810,7 @@ private:
             !it->second->connected.load(
                     std::memory_order_acquire) ||
             !it->second->handle) {
+            ++dropped_sends_;
             runtime_.request_network()
                 .detach_session(
                     destination,
@@ -824,6 +843,7 @@ private:
                     context,
                     &handle))) {
             delete context;
+            ++dropped_sends_;
             transport_failed(
                 destination);
             return;
@@ -841,6 +861,7 @@ private:
             stream->handle =
                 nullptr;
             delete context;
+            ++dropped_sends_;
             transport_failed(
                 destination);
             return;
@@ -859,6 +880,7 @@ private:
                     0);
             }
 
+            ++dropped_sends_;
             transport_failed(
                 destination);
         }
@@ -1606,6 +1628,9 @@ private:
                         .fetch_sub(
                             1,
                             std::memory_order_relaxed);
+                    if (event->SEND_COMPLETE.Canceled)
+                        send->impl->canceled_sends_.fetch_add(
+                            1, std::memory_order_relaxed);
                     send->impl->
                         completed_sends_
                         .fetch_add(
@@ -1615,6 +1640,16 @@ private:
                 }
                 break;
             }
+
+            case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
+                // Unlike SEND_COMPLETE, graceful FIN shutdown means the
+                // peer acknowledged the stream send; not an app-layer ACK.
+                if (!stream->server_side &&
+                    event->SEND_SHUTDOWN_COMPLETE.Graceful) {
+                    self->acknowledged_sends_.fetch_add(
+                        1, std::memory_order_relaxed);
+                }
+                break;
 
             case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
                 stream->closed.store(
@@ -1662,6 +1697,9 @@ private:
     std::atomic<
         std::size_t> completed_sends_{
             0};
+    std::atomic<std::size_t> dropped_sends_{0};
+    std::atomic<std::size_t> acknowledged_sends_{0};
+    std::atomic<std::size_t> canceled_sends_{0};
 
     std::mutex queue_mutex_;
     std::deque<
@@ -1807,6 +1845,27 @@ outstanding_send_count()
             ? impl_->
                   outstanding_send_count()
             : 0;
+}
+
+std::size_t
+MsQuicRequestSessionManager::
+acknowledged_send_count()
+    const noexcept {
+    return impl_ ? impl_->acknowledged_send_count() : 0;
+}
+
+std::size_t
+MsQuicRequestSessionManager::
+canceled_send_count()
+    const noexcept {
+    return impl_ ? impl_->canceled_send_count() : 0;
+}
+
+std::size_t
+MsQuicRequestSessionManager::
+dropped_send_count()
+    const noexcept {
+    return impl_ ? impl_->dropped_send_count() : 0;
 }
 
 std::size_t

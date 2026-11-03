@@ -82,6 +82,10 @@ def launch(index, role, nodes, count, lifetime_ms, discovery_ms,
         "CITOQ_LIBRARY": str(ROOT / "build-benchmark/libcitoq.so"),
         "CITOQ_NATIVE_LIBRARY": str(ROOT / "build-benchmark/libcitoq_native.so"),
     }
+    if os.environ.get("CITOQ_BENCH_PASSIVE_READY") == "1":
+        env["CITOQ_BENCH_PASSIVE_READY"] = "1"
+    if os.environ.get("CITOQ_BENCH_WAIT_QUIC_ACK") == "1":
+        env["CITOQ_BENCH_WAIT_QUIC_ACK"] = "1"
     args = [
         "sudo", "-n", "ip", "netns", "exec", ns, "env",
         *(f"{key}={value}" for key, value in env.items()),
@@ -122,6 +126,9 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
         "topology": "one publisher; N-2 subscribers; one negative-interest node",
         "runner": "Linux netns + veth + Linux Bridge",
         "accepted": False,
+        "readiness_mode": ("session_count" if os.environ.get(
+            "CITOQ_BENCH_PASSIVE_READY") == "1" else "publish_probe"),
+        "ack_gate": os.environ.get("CITOQ_BENCH_WAIT_QUIC_ACK") == "1",
     }
     start = time.monotonic()
     try:
@@ -226,6 +233,57 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
             and metrics["negative_received"] == 0)
     except Exception as exc:
         metrics["error"] = str(exc)
+        # Preserve the strict failure result, but capture process state before
+        # cleanup kills remaining workers. A timeout alone cannot distinguish
+        # missing Discovery matches from stalled data delivery or shutdown.
+        states = []
+        for index, proc in sorted(processes.items()):
+            role = ("publisher" if index == 0 else
+                    "negative" if index == nodes-1 else "subscriber")
+            log = folder / f"node-{index:03d}-{role}.log"
+            output = count_markers(log)
+            exit_code = proc.poll()
+            phases = re.findall(r"^BENCH_PHASE=(\S+)", output, re.MULTILINE)
+            progress = re.findall(r"^BENCH_PROGRESS=(.+)$", output, re.MULTILINE)
+            ack = re.findall(r"^BENCH_ACK_STATUS=(.+)$", output, re.MULTILINE)
+            sent_frames = re.findall(r"^BENCH_SEND_FRAME=(.+)$", output, re.MULTILINE)
+            states.append({
+                "index": index, "role": role, "exit": exit_code,
+                "alive_at_failure": exit_code is None,
+                "receiver_ready": "RECEIVER_READY" in output,
+                "publisher_discovery_ready": "PUBLIC_DISCOVERY_READY" in output,
+                "first_data": "BENCH_FIRST_DATA" in output,
+                "received_all": "BENCH_RECEIVED_ALL" in output,
+                "last_phase": phases[-1] if phases else None,
+                "last_progress": json.loads(progress[-1]) if progress else None,
+                "last_ack": json.loads(ack[-1]) if ack else None,
+                "sent_frame_count": len(sent_frames),
+                "source_sha256": (re.search(r"^BENCH_SOURCE_SHA256=([a-f0-9]{64})$", output, re.MULTILINE).group(1)
+                                  if re.search(r"^BENCH_SOURCE_SHA256=([a-f0-9]{64})$", output, re.MULTILINE)
+                                  else None),
+                "node_result": parse_node(log),
+                "log_tail": output.splitlines()[-12:],
+            })
+        (folder / "failure_process_state.json").write_text(
+            json.dumps(states, indent=2) + "\n")
+        metrics["failure_alive_count"] = sum(
+            x["alive_at_failure"] for x in states)
+        metrics["failure_missing_node_result_count"] = sum(
+            not x["node_result"] for x in states)
+        metrics["failure_publisher_discovery_ready"] = any(
+            x["publisher_discovery_ready"] for x in states
+            if x["role"] == "publisher")
+        metrics["failure_positive_first_data_count"] = sum(
+            x["first_data"] for x in states
+            if x["role"] == "subscriber")
+        metrics["failure_positive_complete_count"] = sum(
+            x["received_all"] for x in states
+            if x["role"] == "subscriber")
+        metrics["failure_publisher_sent_frame_count"] = sum(
+            x["sent_frame_count"] for x in states
+            if x["role"] == "publisher")
+        metrics["failure_publisher_last_phase"] = next(
+            (x["last_phase"] for x in states if x["role"] == "publisher"), None)
     finally:
         # Always kill the *real namespace workers*, not only sudo wrappers.
         # This matters when a child detaches from its wrapper process group.
