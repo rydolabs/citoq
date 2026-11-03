@@ -1,5 +1,6 @@
 #include <citoq/native_runtime_c.h>
 #include <citoq/detail/linux_request_runtime_driver.hpp>
+#include <citoq/detail/msquic_shutdown_trace.hpp>
 
 #include <arpa/inet.h>
 #include <memory>
@@ -65,10 +66,25 @@ extern "C" size_t citoq_native_poll_wait(
 
 extern "C" void citoq_native_close(citoq_native_runtime_t* h) {
     if (!h) return;
+    citoq::detail::diagnostics::shutdown_trace("c_api", "close_enter");
     try {
-        if (h->runtime && h->driver)
+        if (h->runtime && h->driver) {
+            citoq::detail::diagnostics::shutdown_trace(
+                "c_api", "clear_driver_begin");
             (void)h->runtime->clear_driver(h->driver.get());
+            citoq::detail::diagnostics::shutdown_trace(
+                "c_api", "clear_driver_done");
+        }
+        citoq::detail::diagnostics::shutdown_trace(
+            "c_api", "driver_reset_begin");
         h->driver.reset();
-    } catch (...) {}
+        citoq::detail::diagnostics::shutdown_trace(
+            "c_api", "driver_reset_done");
+    } catch (...) {
+        citoq::detail::diagnostics::shutdown_trace(
+            "c_api", "close_exception");
+    }
+    citoq::detail::diagnostics::shutdown_trace("c_api", "handle_delete_begin");
     delete h;
+    citoq::detail::diagnostics::shutdown_trace("c_api", "close_done");
 }

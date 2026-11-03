@@ -1,4 +1,5 @@
 #include <citoq/detail/msquic_request_session_manager.hpp>
+#include <citoq/detail/msquic_shutdown_trace.hpp>
 
 #include <msquic.h>
 
@@ -179,7 +180,13 @@ public:
     }
 
     ~Impl() {
+        diagnostics::shutdown_trace(
+            "impl", "destructor_begin", outbound_.size(),
+            inbound_.size(), outstanding_send_count());
         shutdown();
+        diagnostics::shutdown_trace(
+            "impl", "configuration_close_begin", outbound_.size(),
+            inbound_.size(), outstanding_send_count());
 
         if (server_configuration_) {
             api_->ConfigurationClose(
@@ -188,6 +195,7 @@ public:
                 nullptr;
         }
 
+        diagnostics::shutdown_trace("impl", "server_configuration_close_done");
         if (client_configuration_) {
             api_->ConfigurationClose(
                 client_configuration_);
@@ -195,16 +203,26 @@ public:
                 nullptr;
         }
 
+        diagnostics::shutdown_trace("impl", "client_configuration_close_done");
         if (registration_) {
+            diagnostics::shutdown_trace(
+                "impl", "registration_close_begin", outbound_.size(),
+                inbound_.size(), outstanding_send_count());
             api_->RegistrationClose(
                 registration_);
+            diagnostics::shutdown_trace(
+                "impl", "registration_close_done", outbound_.size(),
+                inbound_.size(), outstanding_send_count());
             registration_ = nullptr;
         }
 
         if (api_) {
+            diagnostics::shutdown_trace("impl", "msquic_close_begin");
             MsQuicClose(api_);
             api_ = nullptr;
+            diagnostics::shutdown_trace("impl", "msquic_close_done");
         }
+        diagnostics::shutdown_trace("impl", "destructor_done");
     }
 
     bool ready() const noexcept {
@@ -402,6 +420,9 @@ public:
     }
 
     void shutdown() {
+        diagnostics::shutdown_trace(
+            "impl", "shutdown_enter", outbound_.size(), inbound_.size(),
+            outstanding_send_count());
         if (!api_) {
             return;
         }
@@ -423,7 +444,11 @@ public:
             owns_wait_hook_ = false;
         }
 
+        diagnostics::shutdown_trace(
+            "impl", "listener_stop_begin", outbound_.size(), inbound_.size(),
+            outstanding_send_count());
         stop_listener();
+        diagnostics::shutdown_trace("impl", "listener_stop_done");
 
         std::vector<
             std::shared_ptr<
@@ -446,6 +471,9 @@ public:
                 state);
         }
 
+        diagnostics::shutdown_trace(
+            "impl", "connection_shutdown_begin", outbound_.size(),
+            inbound_.size(), outstanding_send_count());
         for (const auto& state :
              connections) {
             if (
@@ -463,6 +491,9 @@ public:
             }
         }
 
+        diagnostics::shutdown_trace(
+            "impl", "connection_shutdown_done", outbound_.size(),
+            inbound_.size(), outstanding_send_count());
         const auto deadline =
             std::chrono::
                 steady_clock::now() +
@@ -480,6 +511,9 @@ public:
                     milliseconds(1));
         }
 
+        diagnostics::shutdown_trace(
+            "impl", "drain_deadline_reached", outbound_.size(),
+            inbound_.size(), outstanding_send_count());
         for (auto& [destination, _] :
              outbound_) {
             runtime_.request_network()
@@ -500,7 +534,13 @@ public:
         inbound_.clear();
         inbound_streams_.clear();
 
+        diagnostics::shutdown_trace(
+            "impl", "final_poll_begin", outbound_.size(),
+            inbound_.size(), outstanding_send_count());
         poll(0);
+        diagnostics::shutdown_trace(
+            "impl", "shutdown_done", outbound_.size(),
+            inbound_.size(), outstanding_send_count());
     }
 
 private:
