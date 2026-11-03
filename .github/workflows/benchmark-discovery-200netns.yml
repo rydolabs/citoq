@@ -1,7 +1,7 @@
 name: CitoQ MsQuic teardown tracing on pre-Discovery-convergence runtime
 on:
   push:
-    branches: ['diagnose/msquic-shutdown-pr31-*']
+    branches: ['diagnose/msquic-shutdown-pr31-*', 'fix/msquic-listener-rejection-*']
     paths:
       - 'bench/matrix/**'
       - 'src/msquic_request_session_manager.cpp'
