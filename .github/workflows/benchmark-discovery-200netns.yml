@@ -1,4 +1,4 @@
-name: CitoQ Discovery A-B sparse probe 50-200 netns
+name: CitoQ Discovery A-B polled sparse probe 50-200 netns
 on:
   push:
     branches: ['feat/discovery-convergence-ab-*']

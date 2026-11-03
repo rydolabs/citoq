@@ -141,9 +141,16 @@ def main():
   matched=0
   until=time.monotonic()+a.discovery_timeout_ms/1000
   probe=0
+  probe_interval_s=float(os.environ.get("CITOQ_BENCH_PROBE_INTERVAL_MS","1000"))/1000
+  next_probe=time.monotonic()
   while time.monotonic()<until:
+   # CRITICAL: keep control-plane polls running continuously. The 700-ms
+   # lease must not expire while waiting for the next sparse publish probe.
    transport.poll()
    heartbeat(transport,"publisher_discovery",matched=matched,probes=probe)
+   if time.monotonic()<next_probe:
+    time.sleep(.0005)
+    continue
    probe+=1
    if passive_ready:
     matched=diagnostics(transport).get("session",0)
@@ -151,8 +158,7 @@ def main():
     matched=ctx.publish_raw(TYPE,b"P"+struct.pack("<Q",probe),RESOURCE)
    transport.poll()
    if matched==target:break
-   # Sparse readiness probes avoid excessive QUIC stream fanout.
-   time.sleep(float(os.environ.get("CITOQ_BENCH_PROBE_INTERVAL_MS","1000"))/1000)
+   next_probe=time.monotonic()+probe_interval_s
   ready_ms=(now()-t0)/1e6 if matched==target else None
   if ready_ms is not None:
    print(f"PUBLIC_DISCOVERY_READY elapsed_ms={ready_ms:.3f}",flush=True)
