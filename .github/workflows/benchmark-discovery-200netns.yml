@@ -1,7 +1,7 @@
 name: CitoQ Discovery convergence 100 and 200 netns under loss
 on:
   push:
-    branches: ['feat/discovery-convergence-*', 'feat/discovery-quic-cause-*', 'diagnose/discovery-netns-timeout-20261102']
+    branches: ['feat/discovery-convergence-*', 'feat/discovery-quic-cause-*', 'feat/discovery-quic-handshake-*', 'diagnose/discovery-netns-timeout-20261102']
     paths:
       - 'bench/matrix/**'
       - 'src/msquic_request_session_manager.cpp'
@@ -95,8 +95,9 @@ jobs:
           set -euo pipefail
           python3 -m py_compile bench/matrix/public_discovery_scale.py bench/matrix/public_discovery_node.py bench/m26/m26_efficiency.py
           nodes=${{ matrix.nodes }}
-          repeats=1
-          if [[ "$nodes" -eq 100 ]]; then repeats=2; fi
+          repeats=2
+          # Two independent 200-netns trials per loss level to detect
+          # intermittent failure. The delivery/FIN-ACK PASS gate is unchanged.
           python3 bench/matrix/public_discovery_scale.py \
             --nodes "$nodes" --profile '${{ matrix.profile }}' \
             --repeats "$repeats" --count 8 \
