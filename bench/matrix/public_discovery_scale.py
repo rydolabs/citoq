@@ -86,6 +86,8 @@ def launch(index, role, nodes, count, lifetime_ms, discovery_ms,
         env["CITOQ_BENCH_PASSIVE_READY"] = "1"
     if os.environ.get("CITOQ_BENCH_WAIT_QUIC_ACK") == "1":
         env["CITOQ_BENCH_WAIT_QUIC_ACK"] = "1"
+    if os.environ.get("CITOQ_TRACE_QUIC_EVENTS") == "1":
+        env["CITOQ_TRACE_QUIC_EVENTS"] = "1"
     args = [
         "sudo", "-n", "ip", "netns", "exec", ns, "env",
         *(f"{key}={value}" for key, value in env.items()),
