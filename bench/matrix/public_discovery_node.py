@@ -151,7 +151,8 @@ def main():
     matched=ctx.publish_raw(TYPE,b"P"+struct.pack("<Q",probe),RESOURCE)
    transport.poll()
    if matched==target:break
-   time.sleep(.025)
+   # Sparse readiness probes avoid excessive QUIC stream fanout.
+   time.sleep(float(os.environ.get("CITOQ_BENCH_PROBE_INTERVAL_MS","1000"))/1000)
   ready_ms=(now()-t0)/1e6 if matched==target else None
   if ready_ms is not None:
    print(f"PUBLIC_DISCOVERY_READY elapsed_ms={ready_ms:.3f}",flush=True)
