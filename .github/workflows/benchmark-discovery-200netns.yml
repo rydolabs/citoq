@@ -6,6 +6,12 @@ on:
       - 'bench/matrix/**'
       - 'src/msquic_request_session_manager.cpp'
       - '.github/workflows/benchmark-discovery-200netns.yml'
+  pull_request:
+    branches: ['fix/msquic-listener-rejection-20261103']
+    paths:
+      - 'bench/matrix/**'
+      - 'src/msquic_request_session_manager.cpp'
+      - '.github/workflows/benchmark-discovery-200netns.yml'
   workflow_dispatch:
 # A/B: common exact-delivery harness only; older runtime lacks diagnostic ACK symbols.
 permissions:
