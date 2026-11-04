@@ -1,4 +1,4 @@
-name: CitoQ Issue 53 focused handle census
+name: CitoQ Issue 53 N200 loss teardown census
 on:
   push:
     branches: ['diagnose/msquic-shutdown-pr31-*', 'fix/msquic-listener-rejection-*', 'diagnose/issue53-stream-census-*']
@@ -25,11 +25,7 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - nodes: 10
-            profile: baseline
-          - nodes: 30
-            profile: baseline
-          - nodes: 30
+          - nodes: 200
             profile: netem_10ms_1pct
     name: discovery N${{ matrix.nodes }} ${{ matrix.profile }}
     steps:
