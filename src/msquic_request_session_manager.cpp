@@ -490,6 +490,7 @@ public:
                 state->closing.store(
                     true,
                     std::memory_order_release);
+                trace_connection(state, "shutdown_requested");
                 api_->ConnectionShutdown(
                     state->handle,
                     QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
@@ -847,6 +848,8 @@ private:
         state->endpoint =
             endpoint;
         state->outbound = true;
+        state->trace_id = new_trace_id();
+        trace_connection(state, "created");
 
         auto* context =
             new ConnectionContext{
@@ -861,6 +864,7 @@ private:
                     &connection_callback,
                     context,
                     &connection))) {
+            trace_connection(state, "open_failed");
             delete context;
             return false;
         }
@@ -869,6 +873,7 @@ private:
             connection;
         state->callback_context =
             context;
+        trace_connection(state, "opened");
 
         outbound_.emplace(
             destination,
@@ -887,6 +892,7 @@ private:
                     endpoint.port))) {
             outbound_.erase(
                 destination);
+            trace_connection(state, "close_called");
             api_->ConnectionClose(
                 connection);
             delete context;
@@ -925,6 +931,7 @@ private:
             state->closing.store(
                     true,
                     std::memory_order_release);
+            trace_connection(state, "shutdown_requested");
             api_->ConnectionShutdown(
                 state->handle,
                 QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
@@ -992,6 +999,8 @@ private:
             it->second;
         stream->server_side =
             false;
+        stream->trace_id = new_trace_id();
+        trace_stream(stream, "created");
 
         auto* context =
             new StreamContext{
@@ -1007,6 +1016,7 @@ private:
                     &stream_callback,
                     context,
                     &handle))) {
+            trace_stream(stream, "start_failed");
             delete context;
             transport_failed(
                 destination);
@@ -1015,11 +1025,14 @@ private:
 
         stream->handle =
             handle;
+        trace_stream(stream, "opened");
 
         if (QUIC_FAILED(
                 api_->StreamStart(
                     handle,
                     QUIC_STREAM_START_FLAG_NONE))) {
+            trace_stream(stream, "start_failed");
+            trace_stream(stream, "close_called");
             api_->StreamClose(
                 handle);
             stream->handle =
@@ -1030,6 +1043,7 @@ private:
             return;
         }
 
+        trace_stream(stream, "start_submitted");
         if (!send_on_stream(
                 stream,
                 std::move(bytes))) {
@@ -1070,6 +1084,7 @@ private:
             .fetch_add(
                 1,
                 std::memory_order_relaxed);
+        trace_stream(stream, "send_submitted");
 
         if (QUIC_FAILED(
                 api_->StreamSend(
@@ -1078,6 +1093,7 @@ private:
                     1,
                     QUIC_SEND_FLAG_FIN,
                     send))) {
+            trace_stream(stream, "send_failed");
             outstanding_sends_
                 .fetch_sub(
                     1,
