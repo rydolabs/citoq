@@ -1553,6 +1553,8 @@ private:
                     1,
                     std::memory_order_relaxed);
         state->outbound = false;
+        state->trace_id = self->new_trace_id();
+        self->trace_connection(state, "opened");
 
         auto* callback_context =
             new ConnectionContext{
@@ -1577,6 +1579,7 @@ private:
                         server_configuration_);
 
         if (QUIC_FAILED(status)) {
+            self->trace_connection(state, "rejected");
             // The listener NEW_CONNECTION callback is returning failure.
             // MsQuic owns and rejects this handle after the callback;
             // ConnectionClose here would double-free the connection.
@@ -1591,6 +1594,7 @@ private:
             return status;
         }
 
+        self->trace_connection(state, "configured");
         self->post(
             [self,
              state] {
@@ -1656,6 +1660,8 @@ private:
                     state;
                 stream->server_side =
                     true;
+                stream->trace_id = self->new_trace_id();
+                self->trace_stream(stream, "opened");
 
                 auto* stream_context =
                     new StreamContext{
@@ -1672,6 +1678,7 @@ private:
             }
 
             case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
+                self->trace_connection(state, "shutdown_complete");
                 self->post(
                     [self,
                      state] {
@@ -1689,6 +1696,7 @@ private:
                 state->callback_context =
                     nullptr;
 
+                self->trace_connection(state, "close_called");
                 self->api_->
                     ConnectionClose(
                         connection);
@@ -1726,6 +1734,11 @@ private:
             stream_context->state;
 
         switch (event->Type) {
+            case QUIC_STREAM_EVENT_START_COMPLETE:
+                self->trace_stream(stream,
+                    QUIC_FAILED(event->START_COMPLETE.Status)
+                        ? "start_failed" : "start_complete");
+                break;
             case QUIC_STREAM_EVENT_RECEIVE: {
                 std::size_t total = 0;
 
@@ -1767,6 +1780,7 @@ private:
                     (event->RECEIVE.Flags &
                      QUIC_RECEIVE_FLAG_FIN) !=
                     0;
+                if (peer_done) self->trace_stream(stream, "peer_fin");
 
                 self->post(
                     [self,
@@ -1785,6 +1799,7 @@ private:
             }
 
             case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
+                self->trace_stream(stream, "peer_fin");
                 self->post(
                     [self,
                      stream] {
@@ -1805,6 +1820,8 @@ private:
                             .ClientContext);
 
                 if (send) {
+                    self->trace_stream(stream, event->SEND_COMPLETE.Canceled
+                        ? "send_canceled" : "send_complete");
                     send->impl->
                         outstanding_sends_
                         .fetch_sub(
@@ -1820,11 +1837,21 @@ private:
                 break;
             }
 
+            case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
+                self->trace_stream(stream,
+                    event->SEND_SHUTDOWN_COMPLETE.Graceful
+                        ? "send_shutdown_graceful" : "send_shutdown_complete");
+                break;
+
             case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
+                self->trace_stream(stream, "shutdown_complete");
+                if (event->SHUTDOWN_COMPLETE.ConnectionShutdown)
+                    self->trace_stream(stream, "connection_shutdown");
                 stream->closed.store(
                     true,
                     std::memory_order_release);
 
+                self->trace_stream(stream, "close_called");
                 self->api_->
                     StreamClose(
                         stream_handle);
