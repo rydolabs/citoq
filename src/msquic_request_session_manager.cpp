@@ -559,6 +559,7 @@ private:
         std::uint64_t id{}, destination{}, peer{};
         bool outbound{}, opened{}, configured{}, rejected{};
         bool open_failed{}, shutdown_requested{}, shutdown_complete{}, close_called{};
+        bool map_added{}, map_removed{};
     };
     struct TraceStream {
         std::uint64_t id{}, connection_id{};
@@ -596,6 +597,8 @@ private:
             else if (!std::strcmp(event, "shutdown_requested")) r.shutdown_requested = true;
             else if (!std::strcmp(event, "shutdown_complete")) r.shutdown_complete = true;
             else if (!std::strcmp(event, "close_called")) r.close_called = true;
+            else if (!std::strcmp(event, "map_added")) r.map_added = true;
+            else if (!std::strcmp(event, "map_removed")) r.map_removed = true;
         } catch (...) { /* Best-effort trace must not affect native callbacks. */ }
     }
     void trace_stream(const std::shared_ptr<StreamState>& stream,
@@ -634,9 +637,14 @@ private:
         try {
             std::lock_guard<std::mutex> lock(trace_mutex_);
             std::size_t open_connections = 0, open_streams = 0;
+            std::size_t accepted_unmapped = 0;
             std::size_t incomplete_stream_shutdowns = 0, pending_sends = 0;
-            for (const auto& [_, r] : trace_connections_)
-                if (!r.close_called && !r.rejected && !r.open_failed) ++open_connections;
+            for (const auto& [_, r] : trace_connections_) {
+                if (!r.close_called && !r.rejected && !r.open_failed)
+                    ++open_connections;
+                if (!r.outbound && r.configured && !r.map_added &&
+                    !r.close_called && !r.rejected) ++accepted_unmapped;
+            }
             for (const auto& [_, r] : trace_streams_) {
                 if (r.opened && !r.close_called) ++open_streams;
                 if (r.opened && !r.shutdown_complete) ++incomplete_stream_shutdowns;
@@ -646,10 +654,11 @@ private:
             }
             std::fprintf(stderr,
                 "CITOQ_MSQUIC_HANDLE_CENSUS phase=%s conn_total=%zu "
-                "conn_without_close=%zu stream_total=%zu stream_without_close=%zu "
+                "conn_without_close=%zu accepted_unmapped=%zu "
+                "stream_total=%zu stream_without_close=%zu "
                 "stream_without_shutdown_complete=%zu send_without_complete=%zu\n",
                 phase, trace_connections_.size(), open_connections,
-                trace_streams_.size(), open_streams,
+                accepted_unmapped, trace_streams_.size(), open_streams,
                 incomplete_stream_shutdowns, pending_sends);
             std::size_t shown = 0;
             for (const auto& [_, r] : trace_connections_) {
@@ -657,11 +666,13 @@ private:
                 if (shown++ >= 32) break;
                 std::fprintf(stderr,
                     "CITOQ_MSQUIC_CONN id=%llu outbound=%d destination=%llu peer=%llu "
-                    "opened=%d configured=%d shutdown_requested=%d shutdown_complete=%d\n",
+                    "opened=%d configured=%d map_added=%d map_removed=%d "
+                    "shutdown_requested=%d shutdown_complete=%d\n",
                     static_cast<unsigned long long>(r.id), r.outbound,
                     static_cast<unsigned long long>(r.destination),
                     static_cast<unsigned long long>(r.peer),
-                    r.opened, r.configured, r.shutdown_requested, r.shutdown_complete);
+                    r.opened, r.configured, r.map_added, r.map_removed,
+                    r.shutdown_requested, r.shutdown_complete);
             }
             shown = 0;
             for (const auto& [_, r] : trace_streams_) {
@@ -878,6 +889,7 @@ private:
         outbound_.emplace(
             destination,
             state);
+        trace_connection(state, "map_added");
 
         const auto host =
             ipv4_text(
@@ -1209,6 +1221,7 @@ private:
                             Unavailable);
 
                 outbound_.erase(it);
+                trace_connection(state, "map_removed");
 
                 if (
                     lifecycle_ &&
@@ -1231,6 +1244,7 @@ private:
                     state->peer);
             inbound_.erase(
                 state->peer);
+            trace_connection(state, "map_removed");
 
             for (auto it =
                      inbound_streams_
@@ -1606,6 +1620,7 @@ private:
                         .insert_or_assign(
                             state->peer,
                             state);
+                    self->trace_connection(state, "map_added");
                 }
             });
 
