@@ -8,6 +8,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -95,6 +98,7 @@ private:
     };
 
     struct ConnectionState {
+        std::uint64_t trace_id{};
         HQUIC handle{};
         ConnectionContext*
             callback_context{};
@@ -109,6 +113,7 @@ private:
     };
 
     struct StreamState {
+        std::uint64_t trace_id{};
         HQUIC handle{};
         std::shared_ptr<
             ConnectionState> connection;
@@ -205,6 +210,7 @@ public:
 
         diagnostics::shutdown_trace("impl", "client_configuration_close_done");
         if (registration_) {
+            trace_handle_census("registration_close_begin");
             diagnostics::shutdown_trace(
                 "impl", "registration_close_begin", outbound_.size(),
                 inbound_.size(), outstanding_send_count());
@@ -538,12 +544,150 @@ public:
             "impl", "final_poll_begin", outbound_.size(),
             inbound_.size(), outstanding_send_count());
         poll(0);
+        trace_handle_census("shutdown_done");
         diagnostics::shutdown_trace(
             "impl", "shutdown_done", outbound_.size(),
             inbound_.size(), outstanding_send_count());
     }
 
 private:
+
+    // Observational state: records which callbacks actually fired, not
+    // MsQuic's internal handle ownership.
+    struct TraceConnection {
+        std::uint64_t id{}, destination{}, peer{};
+        bool outbound{}, opened{}, configured{}, rejected{};
+        bool open_failed{}, shutdown_requested{}, shutdown_complete{}, close_called{};
+    };
+    struct TraceStream {
+        std::uint64_t id{}, connection_id{};
+        bool inbound{}, opened{}, start_submitted{}, start_complete{};
+        bool start_failed{}, peer_fin{}, send_shutdown_complete{};
+        bool send_shutdown_graceful{}, shutdown_complete{};
+        bool connection_shutdown{}, close_called{};
+        std::size_t send_submitted{}, send_failed{}, send_complete{}, send_canceled{};
+    };
+    static bool trace_handles() noexcept {
+        static const bool enabled = [] {
+            const char* p = std::getenv("CITOQ_TRACE_MSQUIC_HANDLES");
+            return p && p[0] == '1' && p[1] == '\0';
+        }();
+        return enabled;
+    }
+    std::uint64_t new_trace_id() noexcept {
+        return trace_handles()
+            ? next_trace_id_.fetch_add(1, std::memory_order_relaxed) : 0;
+    }
+    void trace_connection(const std::shared_ptr<ConnectionState>& state,
+                          const char* event) noexcept {
+        if (!trace_handles() || !state || !state->trace_id) return;
+        try {
+            std::lock_guard<std::mutex> lock(trace_mutex_);
+            auto& r = trace_connections_[state->trace_id];
+            r.id = state->trace_id;
+            r.destination = static_cast<std::uint64_t>(state->destination);
+            r.peer = static_cast<std::uint64_t>(state->peer);
+            r.outbound = state->outbound;
+            if (!std::strcmp(event, "opened")) r.opened = true;
+            else if (!std::strcmp(event, "configured")) r.configured = true;
+            else if (!std::strcmp(event, "rejected")) r.rejected = true;
+            else if (!std::strcmp(event, "open_failed")) r.open_failed = true;
+            else if (!std::strcmp(event, "shutdown_requested")) r.shutdown_requested = true;
+            else if (!std::strcmp(event, "shutdown_complete")) r.shutdown_complete = true;
+            else if (!std::strcmp(event, "close_called")) r.close_called = true;
+        } catch (...) { /* Best-effort trace must not affect native callbacks. */ }
+    }
+    void trace_stream(const std::shared_ptr<StreamState>& stream,
+                      const char* event) noexcept {
+        if (!trace_handles() || !stream || !stream->trace_id) return;
+        try {
+            std::lock_guard<std::mutex> lock(trace_mutex_);
+            auto& r = trace_streams_[stream->trace_id];
+            r.id = stream->trace_id;
+            r.connection_id = stream->connection ? stream->connection->trace_id : 0;
+            r.inbound = stream->server_side;
+            if (!std::strcmp(event, "opened")) r.opened = true;
+            else if (!std::strcmp(event, "start_submitted")) r.start_submitted = true;
+            else if (!std::strcmp(event, "start_complete")) r.start_complete = true;
+            else if (!std::strcmp(event, "start_failed")) r.start_failed = true;
+            else if (!std::strcmp(event, "peer_fin")) r.peer_fin = true;
+            else if (!std::strcmp(event, "send_submitted")) ++r.send_submitted;
+            else if (!std::strcmp(event, "send_failed")) ++r.send_failed;
+            else if (!std::strcmp(event, "send_complete")) ++r.send_complete;
+            else if (!std::strcmp(event, "send_canceled")) {
+                ++r.send_complete; ++r.send_canceled;
+            } else if (!std::strcmp(event, "send_shutdown_complete")) {
+                r.send_shutdown_complete = true;
+            } else if (!std::strcmp(event, "send_shutdown_graceful")) {
+                r.send_shutdown_complete = true;
+                r.send_shutdown_graceful = true;
+            } else if (!std::strcmp(event, "shutdown_complete")) {
+                r.shutdown_complete = true;
+            } else if (!std::strcmp(event, "connection_shutdown")) {
+                r.connection_shutdown = true;
+            } else if (!std::strcmp(event, "close_called")) r.close_called = true;
+        } catch (...) { /* Diagnostics only. */ }
+    }
+    void trace_handle_census(const char* phase) noexcept {
+        if (!trace_handles()) return;
+        try {
+            std::lock_guard<std::mutex> lock(trace_mutex_);
+            std::size_t open_connections = 0, open_streams = 0;
+            std::size_t incomplete_stream_shutdowns = 0, pending_sends = 0;
+            for (const auto& [_, r] : trace_connections_)
+                if (!r.close_called && !r.rejected && !r.open_failed) ++open_connections;
+            for (const auto& [_, r] : trace_streams_) {
+                if (r.opened && !r.close_called) ++open_streams;
+                if (r.opened && !r.shutdown_complete) ++incomplete_stream_shutdowns;
+                const auto accounted = r.send_complete + r.send_failed;
+                if (r.send_submitted > accounted)
+                    pending_sends += r.send_submitted - accounted;
+            }
+            std::fprintf(stderr,
+                "CITOQ_MSQUIC_HANDLE_CENSUS phase=%s conn_total=%zu "
+                "conn_without_close=%zu stream_total=%zu stream_without_close=%zu "
+                "stream_without_shutdown_complete=%zu send_without_complete=%zu\n",
+                phase, trace_connections_.size(), open_connections,
+                trace_streams_.size(), open_streams,
+                incomplete_stream_shutdowns, pending_sends);
+            std::size_t shown = 0;
+            for (const auto& [_, r] : trace_connections_) {
+                if (r.close_called || r.rejected || r.open_failed) continue;
+                if (shown++ >= 32) break;
+                std::fprintf(stderr,
+                    "CITOQ_MSQUIC_CONN id=%llu outbound=%d destination=%llu peer=%llu "
+                    "opened=%d configured=%d shutdown_requested=%d shutdown_complete=%d\n",
+                    static_cast<unsigned long long>(r.id), r.outbound,
+                    static_cast<unsigned long long>(r.destination),
+                    static_cast<unsigned long long>(r.peer),
+                    r.opened, r.configured, r.shutdown_requested, r.shutdown_complete);
+            }
+            shown = 0;
+            for (const auto& [_, r] : trace_streams_) {
+                const auto accounted = r.send_complete + r.send_failed;
+                const auto pending = r.send_submitted > accounted
+                    ? r.send_submitted - accounted : 0;
+                if (r.close_called && !pending) continue;
+                if (shown++ >= 64) break;
+                std::fprintf(stderr,
+                    "CITOQ_MSQUIC_STREAM id=%llu conn_id=%llu inbound=%d opened=%d "
+                    "start_submitted=%d start_complete=%d start_failed=%d peer_fin=%d "
+                    "send_submitted=%zu send_failed=%zu send_complete=%zu "
+                    "send_canceled=%zu pending=%zu send_shutdown_complete=%d "
+                    "send_shutdown_graceful=%d shutdown_complete=%d "
+                    "connection_shutdown=%d close_called=%d\n",
+                    static_cast<unsigned long long>(r.id),
+                    static_cast<unsigned long long>(r.connection_id),
+                    r.inbound, r.opened, r.start_submitted, r.start_complete,
+                    r.start_failed, r.peer_fin, r.send_submitted, r.send_failed,
+                    r.send_complete, r.send_canceled, pending, r.send_shutdown_complete,
+                    r.send_shutdown_graceful, r.shutdown_complete,
+                    r.connection_shutdown, r.close_called);
+            }
+            std::fflush(stderr);
+        } catch (...) { /* Trace must not throw during shutdown. */ }
+    }
+
     bool open_client_configuration() {
         QUIC_SETTINGS settings{};
         settings.IdleTimeoutMs =
@@ -1706,6 +1850,11 @@ private:
     std::atomic<
         std::size_t> completed_sends_{
             0};
+
+    std::atomic<std::uint64_t> next_trace_id_{1};
+    std::mutex trace_mutex_;
+    std::unordered_map<std::uint64_t, TraceConnection> trace_connections_;
+    std::unordered_map<std::uint64_t, TraceStream> trace_streams_;
 
     std::mutex queue_mutex_;
     std::deque<
