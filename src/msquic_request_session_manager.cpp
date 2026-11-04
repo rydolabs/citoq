@@ -216,6 +216,7 @@ public:
                 inbound_.size(), outstanding_send_count());
             api_->RegistrationClose(
                 registration_);
+            trace_handle_census("registration_close_done");
             diagnostics::shutdown_trace(
                 "impl", "registration_close_done", outbound_.size(),
                 inbound_.size(), outstanding_send_count());
