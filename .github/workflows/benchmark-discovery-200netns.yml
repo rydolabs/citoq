@@ -1,7 +1,13 @@
-name: CitoQ MsQuic teardown tracing on pre-Discovery-convergence runtime
+name: CitoQ Issue 53 N200 loss teardown census
 on:
   push:
-    branches: ['diagnose/msquic-shutdown-pr31-*', 'fix/msquic-listener-rejection-*']
+    branches: ['diagnose/msquic-shutdown-pr31-*', 'fix/msquic-listener-rejection-*', 'diagnose/issue53-stream-census-*']
+    paths:
+      - 'bench/matrix/**'
+      - 'src/msquic_request_session_manager.cpp'
+      - '.github/workflows/benchmark-discovery-200netns.yml'
+  pull_request:
+    branches: ['fix/msquic-listener-rejection-20261103']
     paths:
       - 'bench/matrix/**'
       - 'src/msquic_request_session_manager.cpp'
@@ -18,8 +24,9 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        nodes: [200]
-        profile: [baseline, netem_10ms_1pct]
+        include:
+          - nodes: 200
+            profile: netem_10ms_1pct
     name: discovery N${{ matrix.nodes }} ${{ matrix.profile }}
     steps:
       - uses: actions/checkout@v4
@@ -90,6 +97,7 @@ jobs:
           CITOQ_BENCH_WAIT_QUIC_ACK: '0'
           CITOQ_BENCH_PROBE_INTERVAL_MS: '1000'
           CITOQ_TRACE_MSQUIC_SHUTDOWN: '1'
+          CITOQ_TRACE_MSQUIC_HANDLES: '1'
         run: |
           set -euo pipefail
           python3 -m py_compile bench/matrix/public_discovery_scale.py bench/matrix/public_discovery_node.py bench/m26/m26_efficiency.py

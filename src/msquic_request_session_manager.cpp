@@ -8,6 +8,9 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <functional>
 #include <memory>
@@ -95,6 +98,7 @@ private:
     };
 
     struct ConnectionState {
+        std::uint64_t trace_id{};
         HQUIC handle{};
         ConnectionContext*
             callback_context{};
@@ -109,6 +113,7 @@ private:
     };
 
     struct StreamState {
+        std::uint64_t trace_id{};
         HQUIC handle{};
         std::shared_ptr<
             ConnectionState> connection;
@@ -116,6 +121,9 @@ private:
             received;
         bool server_side{false};
         bool finalized{false};
+        // Outbound data is submitted only after START_COMPLETE succeeds.
+        // A failed asynchronous start must not strand a SEND_COMPLETE buffer.
+        std::vector<std::uint8_t> pending_start_bytes;
         std::atomic<bool> closed{
             false};
     };
@@ -205,11 +213,13 @@ public:
 
         diagnostics::shutdown_trace("impl", "client_configuration_close_done");
         if (registration_) {
+            trace_handle_census("registration_close_begin");
             diagnostics::shutdown_trace(
                 "impl", "registration_close_begin", outbound_.size(),
                 inbound_.size(), outstanding_send_count());
             api_->RegistrationClose(
                 registration_);
+            trace_handle_census("registration_close_done");
             diagnostics::shutdown_trace(
                 "impl", "registration_close_done", outbound_.size(),
                 inbound_.size(), outstanding_send_count());
@@ -484,6 +494,7 @@ public:
                 state->closing.store(
                     true,
                     std::memory_order_release);
+                trace_connection(state, "shutdown_requested");
                 api_->ConnectionShutdown(
                     state->handle,
                     QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
@@ -538,12 +549,161 @@ public:
             "impl", "final_poll_begin", outbound_.size(),
             inbound_.size(), outstanding_send_count());
         poll(0);
+        trace_handle_census("shutdown_done");
         diagnostics::shutdown_trace(
             "impl", "shutdown_done", outbound_.size(),
             inbound_.size(), outstanding_send_count());
     }
 
 private:
+
+    // Observational state: records which callbacks actually fired, not
+    // MsQuic's internal handle ownership.
+    struct TraceConnection {
+        std::uint64_t id{}, destination{}, peer{};
+        bool outbound{}, opened{}, configured{}, rejected{};
+        bool open_failed{}, shutdown_requested{}, shutdown_complete{}, close_called{};
+        bool map_added{}, map_removed{};
+    };
+    struct TraceStream {
+        std::uint64_t id{}, connection_id{};
+        bool inbound{}, opened{}, start_submitted{}, start_complete{};
+        bool start_failed{}, peer_fin{}, send_shutdown_complete{};
+        bool send_shutdown_graceful{}, shutdown_complete{};
+        bool connection_shutdown{}, close_called{};
+        std::size_t send_submitted{}, send_failed{}, send_complete{}, send_canceled{};
+    };
+    static bool trace_handles() noexcept {
+        static const bool enabled = [] {
+            const char* p = std::getenv("CITOQ_TRACE_MSQUIC_HANDLES");
+            return p && p[0] == '1' && p[1] == '\0';
+        }();
+        return enabled;
+    }
+    std::uint64_t new_trace_id() noexcept {
+        return trace_handles()
+            ? next_trace_id_.fetch_add(1, std::memory_order_relaxed) : 0;
+    }
+    void trace_connection(const std::shared_ptr<ConnectionState>& state,
+                          const char* event) noexcept {
+        if (!trace_handles() || !state || !state->trace_id) return;
+        try {
+            std::lock_guard<std::mutex> lock(trace_mutex_);
+            auto& r = trace_connections_[state->trace_id];
+            r.id = state->trace_id;
+            r.destination = static_cast<std::uint64_t>(state->destination);
+            r.peer = static_cast<std::uint64_t>(state->peer);
+            r.outbound = state->outbound;
+            if (!std::strcmp(event, "opened")) r.opened = true;
+            else if (!std::strcmp(event, "configured")) r.configured = true;
+            else if (!std::strcmp(event, "rejected")) r.rejected = true;
+            else if (!std::strcmp(event, "open_failed")) r.open_failed = true;
+            else if (!std::strcmp(event, "shutdown_requested")) r.shutdown_requested = true;
+            else if (!std::strcmp(event, "shutdown_complete")) r.shutdown_complete = true;
+            else if (!std::strcmp(event, "close_called")) r.close_called = true;
+            else if (!std::strcmp(event, "map_added")) r.map_added = true;
+            else if (!std::strcmp(event, "map_removed")) r.map_removed = true;
+        } catch (...) { /* Best-effort trace must not affect native callbacks. */ }
+    }
+    void trace_stream(const std::shared_ptr<StreamState>& stream,
+                      const char* event) noexcept {
+        if (!trace_handles() || !stream || !stream->trace_id) return;
+        try {
+            std::lock_guard<std::mutex> lock(trace_mutex_);
+            auto& r = trace_streams_[stream->trace_id];
+            r.id = stream->trace_id;
+            r.connection_id = stream->connection ? stream->connection->trace_id : 0;
+            r.inbound = stream->server_side;
+            if (!std::strcmp(event, "opened")) r.opened = true;
+            else if (!std::strcmp(event, "start_submitted")) r.start_submitted = true;
+            else if (!std::strcmp(event, "start_complete")) r.start_complete = true;
+            else if (!std::strcmp(event, "start_failed")) r.start_failed = true;
+            else if (!std::strcmp(event, "peer_fin")) r.peer_fin = true;
+            else if (!std::strcmp(event, "send_submitted")) ++r.send_submitted;
+            else if (!std::strcmp(event, "send_failed")) ++r.send_failed;
+            else if (!std::strcmp(event, "send_complete")) ++r.send_complete;
+            else if (!std::strcmp(event, "send_canceled")) {
+                ++r.send_complete; ++r.send_canceled;
+            } else if (!std::strcmp(event, "send_shutdown_complete")) {
+                r.send_shutdown_complete = true;
+            } else if (!std::strcmp(event, "send_shutdown_graceful")) {
+                r.send_shutdown_complete = true;
+                r.send_shutdown_graceful = true;
+            } else if (!std::strcmp(event, "shutdown_complete")) {
+                r.shutdown_complete = true;
+            } else if (!std::strcmp(event, "connection_shutdown")) {
+                r.connection_shutdown = true;
+            } else if (!std::strcmp(event, "close_called")) r.close_called = true;
+        } catch (...) { /* Diagnostics only. */ }
+    }
+    void trace_handle_census(const char* phase) noexcept {
+        if (!trace_handles()) return;
+        try {
+            std::lock_guard<std::mutex> lock(trace_mutex_);
+            std::size_t open_connections = 0, open_streams = 0;
+            std::size_t accepted_unmapped = 0;
+            std::size_t incomplete_stream_shutdowns = 0, pending_sends = 0;
+            for (const auto& [_, r] : trace_connections_) {
+                if (!r.close_called && !r.rejected && !r.open_failed)
+                    ++open_connections;
+                if (!r.outbound && r.configured && !r.map_added &&
+                    !r.close_called && !r.rejected) ++accepted_unmapped;
+            }
+            for (const auto& [_, r] : trace_streams_) {
+                if (r.opened && !r.close_called) ++open_streams;
+                if (r.opened && !r.shutdown_complete) ++incomplete_stream_shutdowns;
+                const auto accounted = r.send_complete + r.send_failed;
+                if (r.send_submitted > accounted)
+                    pending_sends += r.send_submitted - accounted;
+            }
+            std::fprintf(stderr,
+                "CITOQ_MSQUIC_HANDLE_CENSUS phase=%s conn_total=%zu "
+                "conn_without_close=%zu accepted_unmapped=%zu "
+                "stream_total=%zu stream_without_close=%zu "
+                "stream_without_shutdown_complete=%zu send_without_complete=%zu\n",
+                phase, trace_connections_.size(), open_connections,
+                accepted_unmapped, trace_streams_.size(), open_streams,
+                incomplete_stream_shutdowns, pending_sends);
+            std::size_t shown = 0;
+            for (const auto& [_, r] : trace_connections_) {
+                if (r.close_called || r.rejected || r.open_failed) continue;
+                if (shown++ >= 32) break;
+                std::fprintf(stderr,
+                    "CITOQ_MSQUIC_CONN id=%llu outbound=%d destination=%llu peer=%llu "
+                    "opened=%d configured=%d map_added=%d map_removed=%d "
+                    "shutdown_requested=%d shutdown_complete=%d\n",
+                    static_cast<unsigned long long>(r.id), r.outbound,
+                    static_cast<unsigned long long>(r.destination),
+                    static_cast<unsigned long long>(r.peer),
+                    r.opened, r.configured, r.map_added, r.map_removed,
+                    r.shutdown_requested, r.shutdown_complete);
+            }
+            shown = 0;
+            for (const auto& [_, r] : trace_streams_) {
+                const auto accounted = r.send_complete + r.send_failed;
+                const auto pending = r.send_submitted > accounted
+                    ? r.send_submitted - accounted : 0;
+                if (r.close_called && !pending) continue;
+                if (shown++ >= 64) break;
+                std::fprintf(stderr,
+                    "CITOQ_MSQUIC_STREAM id=%llu conn_id=%llu inbound=%d opened=%d "
+                    "start_submitted=%d start_complete=%d start_failed=%d peer_fin=%d "
+                    "send_submitted=%zu send_failed=%zu send_complete=%zu "
+                    "send_canceled=%zu pending=%zu send_shutdown_complete=%d "
+                    "send_shutdown_graceful=%d shutdown_complete=%d "
+                    "connection_shutdown=%d close_called=%d\n",
+                    static_cast<unsigned long long>(r.id),
+                    static_cast<unsigned long long>(r.connection_id),
+                    r.inbound, r.opened, r.start_submitted, r.start_complete,
+                    r.start_failed, r.peer_fin, r.send_submitted, r.send_failed,
+                    r.send_complete, r.send_canceled, pending, r.send_shutdown_complete,
+                    r.send_shutdown_graceful, r.shutdown_complete,
+                    r.connection_shutdown, r.close_called);
+            }
+            std::fflush(stderr);
+        } catch (...) { /* Trace must not throw during shutdown. */ }
+    }
+
     bool open_client_configuration() {
         QUIC_SETTINGS settings{};
         settings.IdleTimeoutMs =
@@ -703,6 +863,8 @@ private:
         state->endpoint =
             endpoint;
         state->outbound = true;
+        state->trace_id = new_trace_id();
+        trace_connection(state, "created");
 
         auto* context =
             new ConnectionContext{
@@ -717,6 +879,7 @@ private:
                     &connection_callback,
                     context,
                     &connection))) {
+            trace_connection(state, "open_failed");
             delete context;
             return false;
         }
@@ -725,10 +888,12 @@ private:
             connection;
         state->callback_context =
             context;
+        trace_connection(state, "opened");
 
         outbound_.emplace(
             destination,
             state);
+        trace_connection(state, "map_added");
 
         const auto host =
             ipv4_text(
@@ -743,6 +908,7 @@ private:
                     endpoint.port))) {
             outbound_.erase(
                 destination);
+            trace_connection(state, "close_called");
             api_->ConnectionClose(
                 connection);
             delete context;
@@ -781,6 +947,7 @@ private:
             state->closing.store(
                     true,
                     std::memory_order_release);
+            trace_connection(state, "shutdown_requested");
             api_->ConnectionShutdown(
                 state->handle,
                 QUIC_CONNECTION_SHUTDOWN_FLAG_NONE,
@@ -848,6 +1015,8 @@ private:
             it->second;
         stream->server_side =
             false;
+        stream->trace_id = new_trace_id();
+        trace_stream(stream, "created");
 
         auto* context =
             new StreamContext{
@@ -863,6 +1032,7 @@ private:
                     &stream_callback,
                     context,
                     &handle))) {
+            trace_stream(stream, "start_failed");
             delete context;
             transport_failed(
                 destination);
@@ -871,11 +1041,15 @@ private:
 
         stream->handle =
             handle;
+        trace_stream(stream, "opened");
+        stream->pending_start_bytes = std::move(bytes);
 
         if (QUIC_FAILED(
                 api_->StreamStart(
                     handle,
                     QUIC_STREAM_START_FLAG_NONE))) {
+            trace_stream(stream, "start_failed");
+            trace_stream(stream, "close_called");
             api_->StreamClose(
                 handle);
             stream->handle =
@@ -886,22 +1060,8 @@ private:
             return;
         }
 
-        if (!send_on_stream(
-                stream,
-                std::move(bytes))) {
-            if (
-                stream->handle &&
-                !stream->closed.load(
-                    std::memory_order_acquire)) {
-                api_->StreamShutdown(
-                    stream->handle,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT,
-                    0);
-            }
-
-            transport_failed(
-                destination);
-        }
+        trace_stream(stream, "start_submitted");
+        // START_COMPLETE owns the first send, including the failure path.
     }
 
     bool send_on_stream(
@@ -926,6 +1086,7 @@ private:
             .fetch_add(
                 1,
                 std::memory_order_relaxed);
+        trace_stream(stream, "send_submitted");
 
         if (QUIC_FAILED(
                 api_->StreamSend(
@@ -934,6 +1095,7 @@ private:
                     1,
                     QUIC_SEND_FLAG_FIN,
                     send))) {
+            trace_stream(stream, "send_failed");
             outstanding_sends_
                 .fetch_sub(
                     1,
@@ -1049,6 +1211,7 @@ private:
                             Unavailable);
 
                 outbound_.erase(it);
+                trace_connection(state, "map_removed");
 
                 if (
                     lifecycle_ &&
@@ -1071,6 +1234,7 @@ private:
                     state->peer);
             inbound_.erase(
                 state->peer);
+            trace_connection(state, "map_removed");
 
             for (auto it =
                      inbound_streams_
@@ -1393,6 +1557,8 @@ private:
                     1,
                     std::memory_order_relaxed);
         state->outbound = false;
+        state->trace_id = self->new_trace_id();
+        self->trace_connection(state, "opened");
 
         auto* callback_context =
             new ConnectionContext{
@@ -1417,6 +1583,7 @@ private:
                         server_configuration_);
 
         if (QUIC_FAILED(status)) {
+            self->trace_connection(state, "rejected");
             // The listener NEW_CONNECTION callback is returning failure.
             // MsQuic owns and rejects this handle after the callback;
             // ConnectionClose here would double-free the connection.
@@ -1431,6 +1598,7 @@ private:
             return status;
         }
 
+        self->trace_connection(state, "configured");
         self->post(
             [self,
              state] {
@@ -1442,6 +1610,7 @@ private:
                         .insert_or_assign(
                             state->peer,
                             state);
+                    self->trace_connection(state, "map_added");
                 }
             });
 
@@ -1496,6 +1665,8 @@ private:
                     state;
                 stream->server_side =
                     true;
+                stream->trace_id = self->new_trace_id();
+                self->trace_stream(stream, "opened");
 
                 auto* stream_context =
                     new StreamContext{
@@ -1512,6 +1683,7 @@ private:
             }
 
             case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE:
+                self->trace_connection(state, "shutdown_complete");
                 self->post(
                     [self,
                      state] {
@@ -1529,6 +1701,7 @@ private:
                 state->callback_context =
                     nullptr;
 
+                self->trace_connection(state, "close_called");
                 self->api_->
                     ConnectionClose(
                         connection);
@@ -1566,6 +1739,39 @@ private:
             stream_context->state;
 
         switch (event->Type) {
+            case QUIC_STREAM_EVENT_START_COMPLETE: {
+                if (QUIC_FAILED(event->START_COMPLETE.Status)) {
+                    self->trace_stream(stream, "start_failed");
+                    stream->pending_start_bytes.clear();
+                    // START_COMPLETE failure can be followed by SHUTDOWN_COMPLETE.
+                    // Keep the callback context alive until that terminal event;
+                    // closing and deleting it here caused a double free at N200.
+                    self->api_->StreamShutdown(
+                        stream_handle, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
+                    if (stream->connection && !self->stopping_.load(
+                            std::memory_order_acquire)) {
+                        const auto destination = stream->connection->destination;
+                        self->post([self, destination] {
+                            self->transport_failed(destination);
+                        });
+                    }
+                } else {
+                    self->trace_stream(stream, "start_complete");
+                    if (!self->send_on_stream(
+                            stream, std::move(stream->pending_start_bytes))) {
+                        if (!stream->closed.load(std::memory_order_acquire))
+                            self->api_->StreamShutdown(
+                                stream_handle, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
+                        if (stream->connection) {
+                            const auto destination = stream->connection->destination;
+                            self->post([self, destination] {
+                                self->transport_failed(destination);
+                            });
+                        }
+                    }
+                }
+                break;
+            }
             case QUIC_STREAM_EVENT_RECEIVE: {
                 std::size_t total = 0;
 
@@ -1607,6 +1813,7 @@ private:
                     (event->RECEIVE.Flags &
                      QUIC_RECEIVE_FLAG_FIN) !=
                     0;
+                if (peer_done) self->trace_stream(stream, "peer_fin");
 
                 self->post(
                     [self,
@@ -1625,6 +1832,7 @@ private:
             }
 
             case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
+                self->trace_stream(stream, "peer_fin");
                 self->post(
                     [self,
                      stream] {
@@ -1645,6 +1853,8 @@ private:
                             .ClientContext);
 
                 if (send) {
+                    self->trace_stream(stream, event->SEND_COMPLETE.Canceled
+                        ? "send_canceled" : "send_complete");
                     send->impl->
                         outstanding_sends_
                         .fetch_sub(
@@ -1660,11 +1870,21 @@ private:
                 break;
             }
 
+            case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
+                self->trace_stream(stream,
+                    event->SEND_SHUTDOWN_COMPLETE.Graceful
+                        ? "send_shutdown_graceful" : "send_shutdown_complete");
+                break;
+
             case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
+                self->trace_stream(stream, "shutdown_complete");
+                if (event->SHUTDOWN_COMPLETE.ConnectionShutdown)
+                    self->trace_stream(stream, "connection_shutdown");
                 stream->closed.store(
                     true,
                     std::memory_order_release);
 
+                self->trace_stream(stream, "close_called");
                 self->api_->
                     StreamClose(
                         stream_handle);
@@ -1706,6 +1926,11 @@ private:
     std::atomic<
         std::size_t> completed_sends_{
             0};
+
+    std::atomic<std::uint64_t> next_trace_id_{1};
+    std::mutex trace_mutex_;
+    std::unordered_map<std::uint64_t, TraceConnection> trace_connections_;
+    std::unordered_map<std::uint64_t, TraceStream> trace_streams_;
 
     std::mutex queue_mutex_;
     std::deque<
