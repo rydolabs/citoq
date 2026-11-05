@@ -37,6 +37,11 @@ jobs:
           - nodes: 200
             profile: netem_10ms_1pct
             mode: normal
+          # Single Baseline stress case probes the earlier N200 pre-send
+          # SIGABRT symptom; this is not a claim to know its root cause.
+          - nodes: 200
+            profile: baseline
+            mode: normal
     name: msquic N${{ matrix.nodes }} ${{ matrix.profile }} ${{ matrix.mode }}
     steps:
       - uses: actions/checkout@v4
