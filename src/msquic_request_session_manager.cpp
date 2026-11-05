@@ -780,8 +780,14 @@ private:
             10000;
         settings.IsSet.IdleTimeoutMs =
             TRUE;
-        settings.PeerBidiStreamCount =
-            64;
+        // Compile-time test hook only. The normal build retains 64 streams.
+        // With FAIL_BLOCKED on the caller this produces a real asynchronous
+        // START_COMPLETE failure without simulating QUIC callbacks.
+#if defined(CITOQ_MSQUIC_TEST_FORCE_BLOCKED_START)
+        settings.PeerBidiStreamCount = 0;
+#else
+        settings.PeerBidiStreamCount = 64;
+#endif
         settings.IsSet
             .PeerBidiStreamCount =
             TRUE;
@@ -1047,10 +1053,13 @@ private:
         // Record the intent before calling StreamStart: START_COMPLETE may
         // be raised before StreamStart returns.
         trace_stream(stream, "start_submitted");
+#if defined(CITOQ_MSQUIC_TEST_FORCE_BLOCKED_START)
+        constexpr auto start_flags = QUIC_STREAM_START_FLAG_FAIL_BLOCKED;
+#else
+        constexpr auto start_flags = QUIC_STREAM_START_FLAG_NONE;
+#endif
         if (QUIC_FAILED(
-                api_->StreamStart(
-                    handle,
-                    QUIC_STREAM_START_FLAG_NONE))) {
+                api_->StreamStart(handle, start_flags))) {
             trace_stream(stream, "start_failed");
             if (!stream->closed.exchange(
                     true, std::memory_order_acq_rel)) {
@@ -1745,6 +1754,13 @@ private:
                 const auto status = event->START_COMPLETE.Status;
                 if (QUIC_FAILED(status)) {
                     self->trace_stream(stream, "start_failed");
+                    if (trace_handles()) {
+                        std::fprintf(stderr,
+                            "CITOQ_MSQUIC_START_FAILED stream_id=%llu status=%lld\n",
+                            static_cast<unsigned long long>(stream->trace_id),
+                            static_cast<long long>(status));
+                        std::fflush(stderr);
+                    }
                     // MsQuic documents that failed starts need not produce
                     // SHUTDOWN_COMPLETE. No StreamSend has been submitted,
                     // so there is no outstanding SEND_COMPLETE ownership.
