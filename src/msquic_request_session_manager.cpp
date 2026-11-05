@@ -121,6 +121,9 @@ private:
             received;
         bool server_side{false};
         bool finalized{false};
+        // Outbound data is submitted only after START_COMPLETE succeeds.
+        // A failed asynchronous start must not strand a SEND_COMPLETE buffer.
+        std::vector<std::uint8_t> pending_start_bytes;
         std::atomic<bool> closed{
             false};
     };
@@ -1039,6 +1042,7 @@ private:
         stream->handle =
             handle;
         trace_stream(stream, "opened");
+        stream->pending_start_bytes = std::move(bytes);
 
         if (QUIC_FAILED(
                 api_->StreamStart(
@@ -1057,22 +1061,7 @@ private:
         }
 
         trace_stream(stream, "start_submitted");
-        if (!send_on_stream(
-                stream,
-                std::move(bytes))) {
-            if (
-                stream->handle &&
-                !stream->closed.load(
-                    std::memory_order_acquire)) {
-                api_->StreamShutdown(
-                    stream->handle,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT,
-                    0);
-            }
-
-            transport_failed(
-                destination);
-        }
+        // START_COMPLETE owns the first send, including the failure path.
     }
 
     bool send_on_stream(
@@ -1750,11 +1739,38 @@ private:
             stream_context->state;
 
         switch (event->Type) {
-            case QUIC_STREAM_EVENT_START_COMPLETE:
-                self->trace_stream(stream,
-                    QUIC_FAILED(event->START_COMPLETE.Status)
-                        ? "start_failed" : "start_complete");
+            case QUIC_STREAM_EVENT_START_COMPLETE: {
+                if (QUIC_FAILED(event->START_COMPLETE.Status)) {
+                    self->trace_stream(stream, "start_failed");
+                    stream->pending_start_bytes.clear();
+                    stream->closed.store(true, std::memory_order_release);
+                    self->trace_stream(stream, "close_called");
+                    self->api_->StreamClose(stream_handle);
+                    if (stream->connection && !self->stopping_.load(
+                            std::memory_order_acquire)) {
+                        const auto destination = stream->connection->destination;
+                        self->post([self, destination] {
+                            self->transport_failed(destination);
+                        });
+                    }
+                    delete stream_context;
+                } else {
+                    self->trace_stream(stream, "start_complete");
+                    if (!self->send_on_stream(
+                            stream, std::move(stream->pending_start_bytes))) {
+                        if (!stream->closed.load(std::memory_order_acquire))
+                            self->api_->StreamShutdown(
+                                stream_handle, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
+                        if (stream->connection) {
+                            const auto destination = stream->connection->destination;
+                            self->post([self, destination] {
+                                self->transport_failed(destination);
+                            });
+                        }
+                    }
+                }
                 break;
+            }
             case QUIC_STREAM_EVENT_RECEIVE: {
                 std::size_t total = 0;
 
