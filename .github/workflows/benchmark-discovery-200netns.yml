@@ -34,6 +34,9 @@ jobs:
           - nodes: 3
             profile: baseline
             mode: blocked
+          - nodes: 200
+            profile: netem_10ms_1pct
+            mode: normal
     name: msquic N${{ matrix.nodes }} ${{ matrix.profile }} ${{ matrix.mode }}
     steps:
       - uses: actions/checkout@v4
