@@ -1743,9 +1743,11 @@ private:
                 if (QUIC_FAILED(event->START_COMPLETE.Status)) {
                     self->trace_stream(stream, "start_failed");
                     stream->pending_start_bytes.clear();
-                    stream->closed.store(true, std::memory_order_release);
-                    self->trace_stream(stream, "close_called");
-                    self->api_->StreamClose(stream_handle);
+                    // START_COMPLETE failure can be followed by SHUTDOWN_COMPLETE.
+                    // Keep the callback context alive until that terminal event;
+                    // closing and deleting it here caused a double free at N200.
+                    self->api_->StreamShutdown(
+                        stream_handle, QUIC_STREAM_SHUTDOWN_FLAG_ABORT, 0);
                     if (stream->connection && !self->stopping_.load(
                             std::memory_order_acquire)) {
                         const auto destination = stream->connection->destination;
@@ -1753,7 +1755,6 @@ private:
                             self->transport_failed(destination);
                         });
                     }
-                    delete stream_context;
                 } else {
                     self->trace_stream(stream, "start_complete");
                     if (!self->send_on_stream(
