@@ -1,13 +1,13 @@
-name: CitoQ Issue 53 N200 loss teardown census
+name: CitoQ Issue 53 failed-start cleanup regression
 on:
   push:
-    branches: ['diagnose/msquic-shutdown-pr31-*', 'fix/msquic-listener-rejection-*', 'diagnose/issue53-stream-census-*']
+    branches: ['diagnose/msquic-shutdown-pr31-*', 'fix/msquic-listener-rejection-*', 'diagnose/issue53-stream-census-*', 'fix/msquic-start-complete-failure-*']
     paths:
       - 'bench/matrix/**'
       - 'src/msquic_request_session_manager.cpp'
       - '.github/workflows/benchmark-discovery-200netns.yml'
   pull_request:
-    branches: ['fix/msquic-listener-rejection-20261103']
+    branches: ['fix/msquic-listener-rejection-20261103', 'diagnose/issue53-stream-census-20261104']
     paths:
       - 'bench/matrix/**'
       - 'src/msquic_request_session_manager.cpp'
@@ -25,9 +25,24 @@ jobs:
       max-parallel: 2
       matrix:
         include:
+          - nodes: 10
+            profile: baseline
+            mode: normal
+          - nodes: 30
+            profile: netem_10ms_1pct
+            mode: normal
+          - nodes: 3
+            profile: baseline
+            mode: blocked
           - nodes: 200
             profile: netem_10ms_1pct
-    name: discovery N${{ matrix.nodes }} ${{ matrix.profile }}
+            mode: normal
+          # Single Baseline stress case probes the earlier N200 pre-send
+          # SIGABRT symptom; this is not a claim to know its root cause.
+          - nodes: 200
+            profile: baseline
+            mode: normal
+    name: msquic N${{ matrix.nodes }} ${{ matrix.profile }} ${{ matrix.mode }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,7 +81,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cmake -S . -B build-benchmark -G Ninja -DCMAKE_BUILD_TYPE=Release -DCITOQ_ENABLE_MSQUIC=ON -DBUILD_TESTING=OFF
+          extra_flags=''
+          if [[ '${{ matrix.mode }}' == 'blocked' ]]; then
+            extra_flags='-DCITOQ_MSQUIC_TEST_FORCE_BLOCKED_START'
+          fi
+          cmake -S . -B build-benchmark -G Ninja -DCMAKE_BUILD_TYPE=Release -DCITOQ_ENABLE_MSQUIC=ON -DBUILD_TESTING=OFF "-DCMAKE_CXX_FLAGS=$extra_flags"
           cmake --build build-benchmark --target citoq_c citoq_native --parallel 2
           test -s build-benchmark/libcitoq.so
           test -s build-benchmark/libcitoq_native.so
@@ -103,11 +122,42 @@ jobs:
           python3 -m py_compile bench/matrix/public_discovery_scale.py bench/matrix/public_discovery_node.py bench/m26/m26_efficiency.py
           nodes=${{ matrix.nodes }}
           repeats=1
-          python3 bench/matrix/public_discovery_scale.py \
-            --nodes "$nodes" --profile '${{ matrix.profile }}' \
-            --repeats "$repeats" --count 8 \
-            --lifetime-ms 105000 --discovery-timeout-ms 90000 \
-            --output 'discovery-scale-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}'
+          if [[ '${{ matrix.mode }}' == 'blocked' ]]; then
+            # The application must fail strict delivery (no accepted streams).
+            # Native close must STILL complete and every failed start be closed.
+            rc=0
+            python3 bench/matrix/public_discovery_scale.py \
+              --nodes "$nodes" --profile '${{ matrix.profile }}' \
+              --repeats 1 --count 2 \
+              --lifetime-ms 10000 --discovery-timeout-ms 7000 \
+              --output 'discovery-scale-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}' || rc=$?
+            test "$rc" -ne 0
+            python3 - <<'PY'
+          from pathlib import Path
+          import re
+          d = Path('discovery-scale-evidence/n3/baseline/n3-baseline-r1')
+          logs = sorted(d.glob('node-*-*.log'))
+          assert len(logs) == 3, logs
+          for log in logs:
+              data = log.read_text(errors='replace')
+              assert 'BENCH_PHASE=native_close_done' in data, (log, data[-1200:])
+              assert 'phase=registration_close_done' in data, (log, data[-1200:])
+          publisher = (d / 'node-000-publisher.log').read_text()
+          assert 'CITOQ_MSQUIC_START_FAILED' in publisher, publisher[-3000:]
+          snapshots = re.findall(r'CITOQ_MSQUIC_HANDLE_CENSUS phase=registration_close_begin[^\n]+', publisher)
+          assert snapshots, publisher[-3000:]
+          last = snapshots[-1]
+          assert 'stream_without_close=0' in last, last
+          assert 'send_without_complete=0' in last, last
+          print('EXPECTED_ASYNC_START_FAILURE_CLEANED', last)
+          PY
+          else
+            python3 bench/matrix/public_discovery_scale.py \
+              --nodes "$nodes" --profile '${{ matrix.profile }}' \
+              --repeats "$repeats" --count 8 \
+              --lifetime-ms 105000 --discovery-timeout-ms 90000 \
+              --output 'discovery-scale-evidence/n${{ matrix.nodes }}/${{ matrix.profile }}'
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

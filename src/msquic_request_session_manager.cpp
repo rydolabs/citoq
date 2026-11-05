@@ -119,6 +119,9 @@ private:
             ConnectionState> connection;
         std::vector<std::uint8_t>
             received;
+        // Hold outbound bytes until START_COMPLETE confirms successful start.
+        // MsQuic may deliver only START_COMPLETE on asynchronous start failure.
+        std::vector<std::uint8_t> pending_start_send;
         bool server_side{false};
         bool finalized{false};
         std::atomic<bool> closed{
@@ -777,8 +780,14 @@ private:
             10000;
         settings.IsSet.IdleTimeoutMs =
             TRUE;
-        settings.PeerBidiStreamCount =
-            64;
+        // Compile-time test hook only. The normal build retains 64 streams.
+        // With FAIL_BLOCKED on the caller this produces a real asynchronous
+        // START_COMPLETE failure without simulating QUIC callbacks.
+#if defined(CITOQ_MSQUIC_TEST_FORCE_BLOCKED_START)
+        settings.PeerBidiStreamCount = 0;
+#else
+        settings.PeerBidiStreamCount = 64;
+#endif
         settings.IsSet
             .PeerBidiStreamCount =
             TRUE;
@@ -1012,6 +1021,7 @@ private:
             it->second;
         stream->server_side =
             false;
+        stream->pending_start_send = std::move(bytes);
         stream->trace_id = new_trace_id();
         trace_stream(stream, "created");
 
@@ -1040,39 +1050,29 @@ private:
             handle;
         trace_stream(stream, "opened");
 
+        // Record the intent before calling StreamStart: START_COMPLETE may
+        // be raised before StreamStart returns.
+        trace_stream(stream, "start_submitted");
+#if defined(CITOQ_MSQUIC_TEST_FORCE_BLOCKED_START)
+        constexpr auto start_flags = QUIC_STREAM_START_FLAG_FAIL_BLOCKED;
+#else
+        constexpr auto start_flags = QUIC_STREAM_START_FLAG_NONE;
+#endif
         if (QUIC_FAILED(
-                api_->StreamStart(
-                    handle,
-                    QUIC_STREAM_START_FLAG_NONE))) {
+                api_->StreamStart(handle, start_flags))) {
             trace_stream(stream, "start_failed");
-            trace_stream(stream, "close_called");
-            api_->StreamClose(
-                handle);
-            stream->handle =
-                nullptr;
-            delete context;
-            transport_failed(
-                destination);
+            if (!stream->closed.exchange(
+                    true, std::memory_order_acq_rel)) {
+                trace_stream(stream, "close_called");
+                api_->StreamClose(handle);
+                delete context;
+            }
+            transport_failed(destination);
             return;
         }
-
-        trace_stream(stream, "start_submitted");
-        if (!send_on_stream(
-                stream,
-                std::move(bytes))) {
-            if (
-                stream->handle &&
-                !stream->closed.load(
-                    std::memory_order_acquire)) {
-                api_->StreamShutdown(
-                    stream->handle,
-                    QUIC_STREAM_SHUTDOWN_FLAG_ABORT,
-                    0);
-            }
-
-            transport_failed(
-                destination);
-        }
+        // Do NOT StreamSend here: a successful synchronous API return is
+        // not proof the START_COMPLETE callback will report success. The
+        // callback owns either the first send or failed-start cleanup.
     }
 
     bool send_on_stream(
@@ -1750,11 +1750,80 @@ private:
             stream_context->state;
 
         switch (event->Type) {
-            case QUIC_STREAM_EVENT_START_COMPLETE:
-                self->trace_stream(stream,
-                    QUIC_FAILED(event->START_COMPLETE.Status)
-                        ? "start_failed" : "start_complete");
+            case QUIC_STREAM_EVENT_START_COMPLETE: {
+                const auto status = event->START_COMPLETE.Status;
+                if (QUIC_FAILED(status)) {
+                    self->trace_stream(stream, "start_failed");
+                    if (trace_handles()) {
+                        std::fprintf(stderr,
+                            "CITOQ_MSQUIC_START_FAILED stream_id=%llu status=%lld\n",
+                            static_cast<unsigned long long>(stream->trace_id),
+                            static_cast<long long>(status));
+                        std::fflush(stderr);
+                    }
+                    // MsQuic documents that failed starts need not produce
+                    // SHUTDOWN_COMPLETE. No StreamSend has been submitted,
+                    // so there is no outstanding SEND_COMPLETE ownership.
+                    stream->pending_start_send.clear();
+                    const auto connection_state = stream->connection;
+                    if (!stream->closed.exchange(
+                            true, std::memory_order_acq_rel)) {
+                        self->trace_stream(stream, "close_called");
+                        self->api_->StreamClose(stream_handle);
+                        delete stream_context;
+                    }
+                    if (connection_state &&
+                        !self->stopping_.load(std::memory_order_acquire)) {
+                        self->post([self, connection_state] {
+                            if (self->stopping_.load(
+                                    std::memory_order_acquire)) return;
+                            const auto it = self->outbound_.find(
+                                connection_state->destination);
+                            if (it != self->outbound_.end() &&
+                                it->second.get() == connection_state.get())
+                                self->transport_failed(
+                                    connection_state->destination);
+                        });
+                    }
+                    break;
+                }
+
+                self->trace_stream(stream, "start_complete");
+                if (stream->server_side) break;
+                if (self->stopping_.load(std::memory_order_acquire)) {
+                    // A successful late start must also finish its lifetime.
+                    self->api_->StreamShutdown(
+                        stream_handle,
+                        static_cast<QUIC_STREAM_SHUTDOWN_FLAGS>(
+                            QUIC_STREAM_SHUTDOWN_FLAG_ABORT |
+                            QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE), 0);
+                    break;
+                }
+
+                // StreamSend is safe from the MsQuic callback; staging the
+                // payload avoids send contexts orphaned by failed starts.
+                if (!self->send_on_stream(
+                        stream, std::move(stream->pending_start_send))) {
+                    self->api_->StreamShutdown(
+                        stream_handle,
+                        static_cast<QUIC_STREAM_SHUTDOWN_FLAGS>(
+                            QUIC_STREAM_SHUTDOWN_FLAG_ABORT |
+                            QUIC_STREAM_SHUTDOWN_FLAG_IMMEDIATE), 0);
+                    const auto connection_state = stream->connection;
+                    self->post([self, connection_state] {
+                        if (self->stopping_.load(
+                                std::memory_order_acquire) ||
+                            !connection_state) return;
+                        const auto it = self->outbound_.find(
+                            connection_state->destination);
+                        if (it != self->outbound_.end() &&
+                            it->second.get() == connection_state.get())
+                            self->transport_failed(
+                                connection_state->destination);
+                    });
+                }
                 break;
+            }
             case QUIC_STREAM_EVENT_RECEIVE: {
                 std::size_t total = 0;
 
@@ -1863,16 +1932,12 @@ private:
                 self->trace_stream(stream, "shutdown_complete");
                 if (event->SHUTDOWN_COMPLETE.ConnectionShutdown)
                     self->trace_stream(stream, "connection_shutdown");
-                stream->closed.store(
-                    true,
-                    std::memory_order_release);
-
-                self->trace_stream(stream, "close_called");
-                self->api_->
-                    StreamClose(
-                        stream_handle);
-
-                delete stream_context;
+                if (!stream->closed.exchange(
+                        true, std::memory_order_acq_rel)) {
+                    self->trace_stream(stream, "close_called");
+                    self->api_->StreamClose(stream_handle);
+                    delete stream_context;
+                }
                 break;
 
             default:

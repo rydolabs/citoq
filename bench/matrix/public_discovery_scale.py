@@ -165,8 +165,14 @@ def single_trial(nodes, profile, repetition, count, root, lifetime_ms, discovery
                             discovery_ms, folder, files, processes)
         ready_detected = False
         first_detected = False
-        overall_deadline = time.monotonic() + min(
-            150, (discovery_ms + count*150 + 12000)/1000)
+        # Receivers may legitimately stay alive for their full lifetime_ms.
+        # The old 103.2s process gate was shorter than the 105s receiver
+        # lifetime in N200 and falsely classified late normal exits as hangs.
+        # Preserve the strict receipt/exit checks and leave native teardown
+        # timeouts unchanged; just align the *harness* observation horizon.
+        overall_deadline = time.monotonic() + max(
+            lifetime_ms / 1000 + 10,
+            (discovery_ms + count*150 + 12000) / 1000)
         while time.monotonic() < overall_deadline:
             sender_text = count_markers(sender_log)
             if not ready_detected and "PUBLIC_DISCOVERY_READY" in sender_text:
